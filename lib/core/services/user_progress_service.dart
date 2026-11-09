@@ -39,6 +39,11 @@ class UserProgressService extends ChangeNotifier {
       (_summary?['points'] as num?)?.toInt() ??
       basePoints + _records.fold<int>(0, (sum, record) => sum + record.points);
 
+  int get pointsEarned =>
+      (_summary?['pointsEarned'] as num?)?.toInt() ?? points;
+
+  int get pointsSpent => (_summary?['pointsSpent'] as num?)?.toInt() ?? 0;
+
   int get actionsCount =>
       (_summary?['actionsCount'] as num?)?.toInt() ??
       baseActions + _records.length;

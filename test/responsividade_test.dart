@@ -16,6 +16,7 @@ const _authenticatedRoutes = <String>[
   '/preferencias',
   '/notificacoes',
   '/meu-historico',
+  '/recompensas',
   '/detalhes-desafio',
   '/registro-acao',
   '/confirmacao-registro',

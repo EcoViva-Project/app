@@ -6,6 +6,7 @@ import 'api_client.dart';
 import 'challenge_service.dart';
 import 'community_service.dart';
 import 'notification_service.dart';
+import 'reward_service.dart';
 import 'session_service.dart';
 import 'user_progress_service.dart';
 
@@ -145,6 +146,7 @@ class AuthService extends ChangeNotifier {
     NotificationService.instance.reset();
     ChallengeService.instance.reset();
     CommunityService.instance.reset();
+    RewardService.instance.reset();
     notifyListeners();
   }
 
@@ -177,6 +179,7 @@ class AuthService extends ChangeNotifier {
       safely(NotificationService.instance.load),
       safely(ChallengeService.instance.load),
       safely(CommunityService.instance.load),
+      safely(RewardService.instance.load),
     ]);
     notifyListeners();
   }

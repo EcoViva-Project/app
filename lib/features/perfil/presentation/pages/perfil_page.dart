@@ -93,6 +93,14 @@ class _PerfilPageState extends State<PerfilPage> {
                   _recentBadges(),
                   const SizedBox(height: 16),
                   _historyTile(context),
+                  const SizedBox(height: 10),
+                  _menuTile(
+                    context,
+                    icon: Icons.redeem,
+                    title: 'Recompensas dos parceiros',
+                    subtitle: 'Use seus pontos em produtos, serviços e jogos',
+                    onTap: () => context.push('/recompensas'),
+                  ),
                   const SizedBox(height: 20),
                   Text(
                     'Preferências',

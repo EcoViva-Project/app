@@ -8,8 +8,9 @@
 
 Aplicativo **Flutter** (Android, iOS e web) do **EcoViva**: um clube de hábitos
 sustentáveis para o bairro. A pessoa registra ações ecológicas, acumula
-eco-pontos, sobe de nível, desbloqueia selos, participa de desafios coletivos e
-compartilha dicas na comunidade.
+eco-pontos, sobe de nível, desbloqueia selos, participa de desafios coletivos,
+compartilha dicas na comunidade e troca os pontos por recompensas de empresas
+parceiras.
 
 - **API (Node/Express):** https://github.com/EcoViva-Project/backend
 - **App:** https://github.com/EcoViva-Project/app
@@ -20,7 +21,7 @@ compartilha dicas na comunidade.
 
 ## 📱 Telas
 
-O app tem **16 rotas** (5 abas fixas + telas empilhadas + autenticação),
+O app tem **17 rotas** (5 abas fixas + telas empilhadas + autenticação),
 organizadas com `go_router` e `StatefulShellRoute`.
 
 ### Autenticação
@@ -33,7 +34,7 @@ organizadas com `go_router` e `StatefulShellRoute`.
 ### Abas principais
 | Rota | Tela | O que faz |
 | --- | --- | --- |
-| `/inicio` | Início | Saudação, eco-pontos, nível, meta de hábitos do mês, atividade da semana, desafio coletivo em destaque, categorias e atalho para registrar ação |
+| `/inicio` | Início | Saudação, eco-pontos, nível, meta de hábitos do mês, atividade da semana, desafio coletivo em destaque, atalho para recompensas, categorias e botão de registrar ação |
 | `/acoes` | Ações | Catálogo local com 6 ações, busca, filtros por categoria, ordenação (relevância/pontos/A-Z), cards com pontos/litros, botão **Registrar** e envio de **sugestão** de ação |
 | `/desafios` | Desafios | Desafios semanais e coletivos, progresso, participantes, dias restantes e ação de entrar |
 | `/comunidade` | Comunidade | Feed de publicações (criar, curtir, comentar, excluir a própria), ações coletivas do bairro e campanhas |
@@ -50,6 +51,7 @@ organizadas com `go_router` e `StatefulShellRoute`.
 | `/conquistas` | Conquistas | 10 selos com filtros **Todas / Desbloqueadas / Em progresso** |
 | `/preferencias` | Preferências | Notificações push, lembretes, resumo semanal, metas, ranking e compartilhamento |
 | `/notificacoes` | Notificações | Lista, marcar como lida, marcar todas, excluir e navegar para a tela relacionada |
+| `/recompensas` | Recompensas | Saldo de pontos, busca, filtros por categoria, ordenação, detalhe e resgate de produtos/serviços/descontos/itens de jogos com código e histórico |
 
 ---
 
@@ -80,7 +82,7 @@ organizadas com `go_router` e `StatefulShellRoute`.
 - **Feature-first:** cada domínio em `lib/features/<feature>/presentation/pages`.
 - **Serviços singleton** (`ChangeNotifier`) em `lib/core/services`: auth,
   sessão, progresso, conquistas, histórico, desafios, comunidade,
-  notificações.
+  notificações e recompensas.
 - **`ApiClient`** único, com `baseUrl` vinda de `ECO_API_URL` e token Bearer
   injetado em todas as requisições.
 - **`AuthService`** hidrata os demais serviços após login e limpa tudo no logout.
@@ -98,9 +100,9 @@ eco-app/
 │   │   ├── services/           # api_client, auth, sessão, progresso, etc.
 │   │   ├── theme/              # cores, tipografia e ThemeData
 │   │   └── widgets/            # header de página, círculo de status
-│   ├── features/               # 14 features (auth, inicio, acoes, ...)
+│   ├── features/               # 15 features (auth, inicio, acoes, recompensas, ...)
 │   └── main.dart
-├── test/                       # 3 arquivos de teste
+├── test/                       # 4 arquivos de teste
 ├── web/                        # suporte web (manifest + ícones)
 ├── dart-define.example.json
 ├── pubspec.yaml
@@ -163,8 +165,8 @@ O app não usa arquivo `.env` (Flutter não lê `.env` nativamente).
 ## 🧪 Testes e qualidade
 
 ```bash
-flutter test      # 3 arquivos: navegação de notificações,
-                  # progresso/conquistas e responsividade
+flutter test      # 4 arquivos: navegação de notificações,
+                  # progresso/conquistas, recompensas e responsividade
 flutter analyze   # análise estática
 ```
 
@@ -193,6 +195,8 @@ flutter build apk --release --dart-define=ECO_API_URL=https://api.exemplo.com/ap
   `GET /api/actions`. Os IDs (1–6) precisam coincidir com o seed do backend para
   que o registro funcione.
 - Token salvo em `shared_preferences` (não é armazenamento seguro/criptografado).
+- Recompensas são carregadas da API; sem rede, a tela mostra a vitrine local de
+  demonstração e bloqueia o resgate.
 - Apenas tema claro e interface em PT-BR.
 - Sem CI/CD, testes de integração ou golden tests.
 - `provider` declarado sem uso; `cupertino_icons` idem.

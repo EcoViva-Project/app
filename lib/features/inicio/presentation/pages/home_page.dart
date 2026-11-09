@@ -373,6 +373,11 @@ class HomePage extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _rewardsBanner(context),
+              ),
               const SizedBox(height: 20),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -857,6 +862,71 @@ class HomePage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _rewardsBanner(BuildContext context) {
+    final progress = UserProgressService.instance;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => context.push('/recompensas'),
+      child: Ink(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppColors.brandSurface,
+              AppColors.brandTertiaryAccent.withOpacity(0.35),
+            ],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.brandBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.brandSurface,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.redeem,
+                color: AppColors.brandDarkAccent,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Troque seus pontos por recompensas',
+                    style: AppTextStyles.bodyMd.copyWith(
+                      color: AppColors.brandTextPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${progress.formattedPoints} pts disponíveis • parceiros EcoViva',
+                    style: AppTextStyles.labelSm.copyWith(
+                      color: AppColors.brandTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              color: AppColors.brandDarkAccent,
+            ),
+          ],
+        ),
       ),
     );
   }

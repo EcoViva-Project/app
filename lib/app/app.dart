@@ -18,6 +18,7 @@ import '../features/progresso/presentation/pages/progresso_page.dart';
 import '../features/conquistas/presentation/pages/conquistas_page.dart';
 import '../features/preferencias/presentation/pages/preferencias_page.dart';
 import '../features/notificacoes/presentation/pages/notificacoes_page.dart';
+import '../features/recompensas/presentation/pages/recompensas_page.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.navigationShell});
@@ -202,6 +203,11 @@ class AppRouter {
         path: '/notificacoes',
         name: 'notificacoes',
         builder: (context, state) => const NotificacoesPage(),
+      ),
+      GoRoute(
+        path: '/recompensas',
+        name: 'recompensas',
+        builder: (context, state) => const RecompensasPage(),
       ),
     ],
   );

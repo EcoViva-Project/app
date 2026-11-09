@@ -31,6 +31,16 @@ class IconCatalog {
     'schedule': Icons.schedule,
     'spa': Icons.spa,
     'emoji_events': Icons.emoji_events,
+    'storefront': Icons.storefront,
+    'cleaning_services': Icons.cleaning_services,
+    'local_cafe': Icons.local_cafe,
+    'sports_esports': Icons.sports_esports,
+    'shopping_bag': Icons.shopping_bag,
+    'percent': Icons.percent,
+    'checkroom': Icons.checkroom,
+    'redeem': Icons.redeem,
+    'inventory_2': Icons.inventory_2,
+    'confirmation_number': Icons.confirmation_number,
   };
 
   static IconData resolve(String? name, {IconData fallback = Icons.eco}) {
