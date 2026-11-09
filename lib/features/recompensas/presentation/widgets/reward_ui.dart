@@ -47,6 +47,7 @@ extension CouponStatusVisual on CouponStatus {
     }
   }
 
+  /// Cor do ícone da situação.
   Color get color {
     switch (this) {
       case CouponStatus.active:
@@ -55,6 +56,18 @@ extension CouponStatusVisual on CouponStatus {
         return AppColors.brandTextSecondary;
       case CouponStatus.expired:
         return AppColors.onErrorContainer;
+    }
+  }
+
+  /// Cor do texto da situação (somente as cores de texto da marca).
+  Color get textColor {
+    switch (this) {
+      case CouponStatus.active:
+        return AppColors.brandDarkAccent;
+      case CouponStatus.used:
+        return AppColors.brandTextSecondary;
+      case CouponStatus.expired:
+        return AppColors.brandTextPrimary;
     }
   }
 }
@@ -67,6 +80,7 @@ class RewardPill extends StatelessWidget {
     this.icon,
     this.background = AppColors.brandSecondaryContainer,
     this.foreground = AppColors.brandDarkAccent,
+    this.iconColor,
   });
 
   /// Recompensa sem estoque.
@@ -74,19 +88,26 @@ class RewardPill extends StatelessWidget {
     : label = 'Esgotado',
       icon = Icons.remove_shopping_cart_outlined,
       background = AppColors.errorContainer,
-      foreground = AppColors.onErrorContainer;
+      foreground = AppColors.brandTextPrimary,
+      iconColor = AppColors.onErrorContainer;
 
   /// A pessoa já resgatou o máximo permitido no período.
   const RewardPill.limitReached({super.key})
     : label = 'Limite atingido',
       icon = Icons.block,
       background = AppColors.surfaceContainerHigh,
-      foreground = AppColors.brandTextPrimary;
+      foreground = AppColors.brandTextPrimary,
+      iconColor = null;
 
   final String label;
   final IconData? icon;
   final Color background;
+
+  /// Cor do texto: use só as cores de texto da marca.
   final Color foreground;
+
+  /// Cor do ícone; quando nula, usa [foreground].
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +121,7 @@ class RewardPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 14, color: foreground),
+            Icon(icon, size: 14, color: iconColor ?? foreground),
             const SizedBox(width: 4),
           ],
           Flexible(

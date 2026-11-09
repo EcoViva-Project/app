@@ -132,7 +132,8 @@ class RewardCard extends StatelessWidget {
                         background: AppColors.brandTertiaryAccent.withValues(
                           alpha: 0.45,
                         ),
-                        foreground: AppColors.onTertiaryContainer,
+                        foreground: AppColors.brandTextPrimary,
+                        iconColor: AppColors.onTertiaryContainer,
                       ),
                     if (status != null) status,
                   ],

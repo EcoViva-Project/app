@@ -6,6 +6,7 @@ import 'action_history_service.dart';
 import 'api_client.dart';
 import 'challenge_service.dart';
 import 'community_service.dart';
+import 'neighborhood_service.dart';
 import 'notification_service.dart';
 import 'reward_service.dart';
 import 'session_service.dart';
@@ -52,6 +53,40 @@ class AuthService extends ChangeNotifier {
   String get userEmail => user?['email'] as String? ?? '';
 
   String get neighborhood => user?['neighborhood'] as String? ?? '';
+
+  String get city => user?['city'] as String? ?? '';
+
+  /// Endereço informado no cadastro: `cep`, `street`, `number`, `complement`,
+  /// `neighborhood`, `city` e `state` (qualquer um pode faltar).
+  Map<String, dynamic> get address =>
+      (user?['address'] as Map<String, dynamic>?) ?? const {};
+
+  /// "Rua das Acácias, 120 - Boa Vista, São José do Rio Preto - SP".
+  String get addressLine {
+    String part(String key) => (address[key] as String? ?? '').trim();
+    final street = [
+      part('street'),
+      part('number'),
+    ].where((value) => value.isNotEmpty).join(', ');
+    final place = [
+      neighborhood,
+      [city, part('state')].where((value) => value.isNotEmpty).join(' - '),
+    ].where((value) => value.isNotEmpty).join(', ');
+    return [street, place].where((value) => value.isNotEmpty).join(' - ');
+  }
+
+  /// "Boa Vista, São José do Rio Preto" (sem rua nem número).
+  String get regionLabel =>
+      [neighborhood, city].where((value) => value.isNotEmpty).join(', ');
+
+  /// Posição aproximada (região do bairro), usada para distâncias e mapa.
+  ({double lat, double lon})? get location {
+    final raw = user?['location'];
+    if (raw is! Map) return null;
+    final lat = (raw['lat'] as num?)?.toDouble();
+    final lon = (raw['lon'] as num?)?.toDouble();
+    return lat == null || lon == null ? null : (lat: lat, lon: lon);
+  }
 
   int get weeklyGoal => (user?['weeklyGoal'] as num?)?.toInt() ?? 5;
 
@@ -108,6 +143,12 @@ class AuthService extends ChangeNotifier {
     required String email,
     required String password,
     String? neighborhood,
+    String? cep,
+    String? street,
+    String? number,
+    String? complement,
+    String? city,
+    String? state,
   }) async {
     _setBusy(true);
     try {
@@ -115,8 +156,15 @@ class AuthService extends ChangeNotifier {
         'name': name.trim(),
         'email': email.trim(),
         'password': password,
-        if (neighborhood != null && neighborhood.trim().isNotEmpty)
-          'neighborhood': neighborhood.trim(),
+        ..._addressFields(
+          neighborhood: neighborhood,
+          cep: cep,
+          street: street,
+          number: number,
+          complement: complement,
+          city: city,
+          state: state,
+        ),
       });
       await _applySession(data);
       await loadAll();
@@ -144,15 +192,72 @@ class AuthService extends ChangeNotifier {
     });
   }
 
+  /// Só os campos de endereço preenchidos, prontos para enviar à API.
+  Map<String, String> _addressFields({
+    String? neighborhood,
+    String? cep,
+    String? street,
+    String? number,
+    String? complement,
+    String? city,
+    String? state,
+  }) {
+    final fields = <String, String>{};
+    void put(String key, String? value) {
+      final text = value?.trim() ?? '';
+      if (text.isNotEmpty) fields[key] = text;
+    }
+
+    put('neighborhood', neighborhood);
+    put('cep', cep);
+    put('street', street);
+    put('number', number);
+    put('complement', complement);
+    put('city', city);
+    put('state', state);
+    return fields;
+  }
+
+  /// Bairros conhecidos cujo nome contém [query] (para sugerir no cadastro).
+  Future<List<String>> searchNeighborhoods(String query) async {
+    if (query.trim().length < 2) return const [];
+    try {
+      final data = await ApiClient.instance.get(
+        '/places/neighborhoods',
+        query: {'search': query.trim()},
+      );
+      return [
+        for (final item in (data['neighborhoods'] as List?) ?? const [])
+          item.toString(),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> updateProfile({
     String? name,
     String? neighborhood,
+    String? cep,
+    String? street,
+    String? number,
+    String? complement,
+    String? city,
+    String? state,
     int? monthlyGoal,
     int? weeklyGoal,
   }) async {
     final data = await ApiClient.instance.patch('/users/me', {
       if (name != null) 'name': name,
-      if (neighborhood != null) 'neighborhood': neighborhood,
+      ..._addressFields(
+        neighborhood: neighborhood,
+        cep: cep,
+        street: street,
+        number: number,
+        complement: complement,
+        city: city,
+        state: state,
+      ),
       if (monthlyGoal != null) 'monthlyGoal': monthlyGoal,
       if (weeklyGoal != null) 'weeklyGoal': weeklyGoal,
     });
@@ -210,6 +315,7 @@ class AuthService extends ChangeNotifier {
       safely(ChallengeService.instance.load),
       safely(CommunityService.instance.load),
       safely(RewardService.instance.load),
+      safely(NeighborhoodService.instance.load),
     ]);
     notifyListeners();
   }
@@ -223,6 +329,7 @@ class AuthService extends ChangeNotifier {
     ChallengeService.instance.reset();
     CommunityService.instance.reset();
     RewardService.instance.reset();
+    NeighborhoodService.instance.reset();
   }
 
   /// A API recusou o token: encerra a sessão para o roteador levar ao login.

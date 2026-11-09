@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
@@ -100,12 +102,12 @@ class UserProgressService extends ChangeNotifier {
   Future<void> load() async {
     _loading = true;
     _error = null;
-    notifyListeners();
+    scheduleMicrotask(notifyListeners);
     try {
       final data = await ApiClient.instance.get('/progress');
       _summary = data['summary'] as Map<String, dynamic>;
-    } on ApiException catch (error) {
-      _error = error.message;
+    } catch (error) {
+      _error = describeLoadError(error);
       rethrow;
     } finally {
       _loading = false;

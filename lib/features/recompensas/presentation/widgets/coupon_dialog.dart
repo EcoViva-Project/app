@@ -275,7 +275,7 @@ class _CouponDialogState extends State<CouponDialog> {
                           Text(
                             status.label,
                             style: AppTextStyles.labelLg.copyWith(
-                              color: status.color,
+                              color: status.textColor,
                               fontWeight: FontWeight.w700,
                             ),
                           ),

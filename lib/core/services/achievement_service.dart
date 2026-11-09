@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
@@ -99,13 +101,13 @@ class AchievementService extends ChangeNotifier {
   Future<void> load() async {
     _loading = true;
     _error = null;
-    notifyListeners();
+    scheduleMicrotask(notifyListeners);
     try {
       final data = await ApiClient.instance.get('/progress/achievements');
       _items = List.unmodifiable(Achievement.listFromApi(data['achievements']));
       _loaded = true;
-    } on ApiException catch (error) {
-      _error = error.message;
+    } catch (error) {
+      _error = describeLoadError(error);
       rethrow;
     } finally {
       _loading = false;

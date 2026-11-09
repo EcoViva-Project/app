@@ -77,7 +77,7 @@ class CouponTile extends StatelessWidget {
                             child: Text(
                               coupon.statusDetail,
                               style: AppTextStyles.labelMd.copyWith(
-                                color: status.color,
+                                color: status.textColor,
                               ),
                             ),
                           ),

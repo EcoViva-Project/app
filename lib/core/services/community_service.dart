@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
@@ -120,7 +122,7 @@ class CommunityService extends ChangeNotifier {
   Future<void> load() async {
     _loading = true;
     _error = null;
-    notifyListeners();
+    scheduleMicrotask(notifyListeners);
     try {
       final data = await ApiClient.instance.get('/community/posts');
       _posts
@@ -131,8 +133,8 @@ class CommunityService extends ChangeNotifier {
           ),
         );
       _loaded = true;
-    } on ApiException catch (error) {
-      _error = error.message;
+    } catch (error) {
+      _error = describeLoadError(error);
       rethrow;
     } finally {
       _loading = false;

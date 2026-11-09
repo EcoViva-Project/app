@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
@@ -337,7 +339,7 @@ class RewardService extends ChangeNotifier {
   Future<void> load() async {
     _loading = true;
     _error = null;
-    notifyListeners();
+    scheduleMicrotask(notifyListeners);
     try {
       final data = await ApiClient.instance.get('/rewards');
       _rewards
@@ -349,8 +351,8 @@ class RewardService extends ChangeNotifier {
         );
       await _loadRedemptions();
       _loaded = true;
-    } on ApiException catch (error) {
-      _error = error.message;
+    } catch (error) {
+      _error = describeLoadError(error);
       rethrow;
     } finally {
       _loading = false;

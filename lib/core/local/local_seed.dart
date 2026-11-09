@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'data/collection_points_data.dart';
 import 'economy.dart';
 import 'local_api.dart';
 import 'local_store.dart';
@@ -131,7 +132,7 @@ class LocalSeed {
       'target_steps': 7,
       'step_mode': 'days',
       'points_reward': 100,
-      'base_participants': 184,
+      'base_participants': 0,
       'duration_days': 7,
       'is_weekly': 1,
     },
@@ -144,7 +145,7 @@ class LocalSeed {
       'target_steps': 5,
       'step_mode': 'actions',
       'points_reward': 100,
-      'base_participants': 97,
+      'base_participants': 0,
       'duration_days': 7,
       'is_weekly': 1,
     },
@@ -157,7 +158,7 @@ class LocalSeed {
       'target_steps': 1,
       'step_mode': 'actions',
       'points_reward': 60,
-      'base_participants': 63,
+      'base_participants': 0,
       'duration_days': 14,
       'is_weekly': 0,
     },
@@ -170,7 +171,7 @@ class LocalSeed {
       'target_steps': 10,
       'step_mode': 'days',
       'points_reward': 150,
-      'base_participants': 128,
+      'base_participants': 0,
       'duration_days': 14,
       'is_weekly': 0,
     },
@@ -439,7 +440,138 @@ class LocalSeed {
         'created_at': created,
       });
     }
+
+    await db.insert('community_goals', {
+      'title': 'Meta coletiva da semana',
+      'description':
+          'Juntos, vamos registrar $weeklyGoalTarget ações sustentáveis até domingo.',
+      'target_actions': weeklyGoalTarget,
+      'active': 1,
+    });
+    for (final tip in tips) {
+      await db.insert('tips', tip);
+    }
+    for (final point in collectionPointsData) {
+      await db.insert('collection_points', {
+        ...point,
+        'materials': jsonEncode(point['materials'] ?? const <String>[]),
+      });
+    }
   }
+
+  /// Meta coletiva: ações registradas por toda a comunidade na semana.
+  static const int weeklyGoalTarget = 400;
+
+  static const List<Map<String, Object?>> tips = [
+    {
+      'text':
+          'Aproveite a água do enxágue de frutas e verduras para regar as plantas.',
+      'category_label': 'Água',
+      'icon': 'water_drop',
+    },
+    {
+      'text':
+          'Lave as embalagens antes de separar para a reciclagem: material limpo vale mais para a cooperativa.',
+      'category_label': 'Reciclagem',
+      'icon': 'recycling',
+    },
+    {
+      'text':
+          'Trajetos de até 2 km costumam ser mais rápidos a pé ou de bicicleta do que procurando vaga.',
+      'category_label': 'Transporte',
+      'icon': 'directions_bike',
+    },
+    {
+      'text':
+          'Cascas de frutas, borra de café e folhas secas são a base de uma boa composteira.',
+      'category_label': 'Alimentação',
+      'icon': 'compost',
+    },
+    {
+      'text':
+          'Tire da tomada os aparelhos que ficam em espera: eles consomem energia mesmo desligados.',
+      'category_label': 'Energia',
+      'icon': 'bolt',
+    },
+    {
+      'text':
+          'Leve uma sacola extra na caminhada e recolha o que encontrar pelo caminho.',
+      'category_label': 'Espaços Públicos',
+      'icon': 'park',
+    },
+    {
+      'text':
+          'Um banho de 5 minutos gasta cerca de um terço da água de um banho de 15.',
+      'category_label': 'Água',
+      'icon': 'water_drop',
+    },
+    {
+      'text':
+          'Óleo de cozinha usado não vai na pia: guarde em uma garrafa e leve a um ponto de coleta.',
+      'category_label': 'Reciclagem',
+      'icon': 'recycling',
+    },
+    {
+      'text':
+          'Combine carona com quem faz o mesmo trajeto: um carro a menos na rua todos os dias.',
+      'category_label': 'Transporte',
+      'icon': 'groups',
+    },
+    {
+      'text':
+          'Planeje as refeições da semana antes de ir ao mercado e evite jogar comida fora.',
+      'category_label': 'Alimentação',
+      'icon': 'eco',
+    },
+    {
+      'text':
+          'Aproveite a luz natural: abrir a cortina de manhã adia a hora de acender a lâmpada.',
+      'category_label': 'Energia',
+      'icon': 'lightbulb_outline',
+    },
+    {
+      'text':
+          'Pilhas, baterias e lâmpadas têm ponto de coleta próprio: nunca vão no lixo comum.',
+      'category_label': 'Reciclagem',
+      'icon': 'recycling',
+    },
+    {
+      'text':
+          'Adote um canteiro ou uma árvore da sua rua: regar uma vez por semana já ajuda.',
+      'category_label': 'Espaços Públicos',
+      'icon': 'park',
+    },
+    {
+      'text':
+          'Feche a torneira ao ensaboar a louça e economize dezenas de litros por lavagem.',
+      'category_label': 'Água',
+      'icon': 'water_drop',
+    },
+  ];
+
+  /// Moradores fictícios da demonstração, em bairros reais de Rio Preto.
+  ///
+  /// O terceiro valor é o ritmo: 1 = casual, 2 = regular, 3 = dedicado.
+  static const List<(String, String, int)> neighbors = [
+    ('Marina Lopes', 'Vila Redentora', 3),
+    ('Rafael Souza', 'Higienópolis', 2),
+    ('João Ferreira', 'Jardim Alto Rio Preto', 2),
+    ('Beatriz Nunes', 'Vila Imperial', 3),
+    ('Carlos Eduardo Lima', 'Eldorado', 1),
+    ('Fernanda Rocha', 'Solo Sagrado', 2),
+    ('Gustavo Almeida', 'Jardim Nazareth', 1),
+    ('Helena Barros', 'Vila Maceno', 2),
+    ('Igor Santana', 'Jardim Yolanda', 1),
+    ('Juliana Prado', 'Vila Anchieta', 3),
+    ('Lucas Teixeira', 'Jardim Canaã', 2),
+    ('Mariana Costa', 'Jardim Soraia', 1),
+    ('Nelson Ribeiro', 'Parque Industrial', 2),
+    ('Olívia Martins', 'Vila Ercília', 2),
+    ('Paulo Henrique Dias', 'São Francisco', 1),
+    ('Renata Cardoso', 'Vila Toninho', 2),
+    ('Sérgio Moura', 'Jardim Vetorasso', 1),
+    ('Tatiane Freitas', 'Centro', 3),
+  ];
 
   static Future<void> _seed(LocalApi api) async {
     final db = api.db;
@@ -458,7 +590,7 @@ class LocalSeed {
       name: 'Clara Mendes',
       email: demoEmail,
       password: demoPassword,
-      neighborhood: 'Jardim das Flores',
+      neighborhood: 'Boa Vista',
       createdAt: firstDay.add(const Duration(hours: 7)),
     );
     // Meta mensal compatível com o ritmo da conta de demonstração.
@@ -625,8 +757,109 @@ class LocalSeed {
       now.subtract(const Duration(days: 3, hours: 2)),
     );
 
-    await _seedCommunity(api, clara, now);
+    final people = await _seedNeighbors(api, today, weekStart);
+    await _seedCommunity(api, clara, now, people);
     await _seedNotifications(api, clara, now, firstDay);
+  }
+
+  /// Cria os moradores fictícios e as duas últimas semanas de ações deles,
+  /// passando pelas mesmas regras de qualquer usuário. É daqui que saem os
+  /// números do bairro: vizinhos ativos, ações da semana, meta coletiva,
+  /// ranking e "quantos registraram hoje".
+  static Future<Map<String, DbRow>> _seedNeighbors(
+    LocalApi api,
+    DateTime today,
+    DateTime weekStart,
+  ) async {
+    final db = api.db;
+    final now = api.now;
+    const day = Duration(days: 1);
+    final firstDay = today.subtract(const Duration(days: 13));
+    final people = <String, DbRow>{};
+
+    // Gerador simples e determinístico: a demonstração é sempre a mesma.
+    var state = 20261111;
+    int next(int max) {
+      state = (state * 1103515245 + 12345) & 0x7fffffff;
+      return (state >> 8) % max;
+    }
+
+    DbRow action(int number) => db.byId('actions', number)!;
+
+    for (var i = 0; i < neighbors.length; i++) {
+      final (name, neighborhood, pace) = neighbors[i];
+      final person = await api.createUser(
+        name: name,
+        email: 'vizinho${i + 1}@demo.ecoviva',
+        // Contas de figuração: ninguém entra com elas.
+        password: 'figurante-${state + i}',
+        neighborhood: neighborhood,
+        createdAt: firstDay.subtract(Duration(days: 20 + i)),
+      );
+      people[name] = person;
+
+      Future<void> register(int number, DateTime at, {int quantity = 1}) async {
+        if (at.isAfter(now)) return;
+        try {
+          await api.registerAction(
+            person,
+            action(number),
+            quantity: quantity,
+            at: at,
+            silent: true,
+          );
+        } on Object {
+          // Limite da ação ou do dia: o registro é ignorado.
+        }
+      }
+
+      // Entradas em desafios, para a contagem de participantes ser real.
+      final joins = <int, DateTime>{
+        if (i < 9) 1: weekStart.add(Duration(minutes: 10 + i)),
+        if (i >= 3 && i < 10) 2: today.subtract(const Duration(days: 5)),
+        if (i >= 10 && i < 14) 3: today.subtract(const Duration(days: 6)),
+        if (i >= 12) 4: today.subtract(const Duration(days: 4)),
+      };
+      for (final entry in joins.entries) {
+        if (entry.value.isAfter(now)) continue;
+        await api.joinChallenge(
+          person,
+          db.byId('challenges', entry.key)!,
+          at: entry.value,
+        );
+      }
+
+      final elapsedToday = now.difference(today);
+      for (var d = firstDay; !d.isAfter(today); d = d.add(day)) {
+        final isToday = d == today;
+        final activeChance = pace == 3 ? 95 : (pace == 2 ? 75 : 45);
+        final roll = next(100);
+        if (roll >= activeChance) continue;
+
+        // Hoje as ações se espalham pelo tempo já decorrido do dia.
+        DateTime at(int hour, int minute) {
+          if (!isToday) return d.add(Duration(hours: hour, minutes: minute));
+          final fraction = ((hour - 6) / 17).clamp(0.05, 0.95);
+          return today.add(
+            Duration(seconds: (elapsedToday.inSeconds * fraction).round()),
+          );
+        }
+
+        await register(1, at(7, 20 + i));
+        if (pace >= 2) await register(1, at(21, 10 + i));
+        if (next(100) < 40 + pace * 15) await register(2, at(12, i));
+        if (next(100) < 15 + pace * 15) {
+          await register(3, at(18, i), quantity: pace == 3 ? 2 : 1);
+        }
+        if (next(100) < 10 + pace * 12) await register(4, at(19, 30));
+        if (next(100) < 20 + pace * 10) await register(5, at(22, 0));
+        if (pace == 3 &&
+            Economy.wallClock(d).weekday == DateTime.sunday) {
+          await register(6, at(9, 0));
+        }
+      }
+    }
+    return people;
   }
 
   static Future<DbRow?> _redeem(
@@ -647,6 +880,7 @@ class LocalSeed {
     LocalApi api,
     DbRow clara,
     DateTime now,
+    Map<String, DbRow> people,
   ) async {
     final db = api.db;
     String ago(Duration duration) =>
@@ -662,7 +896,8 @@ class LocalSeed {
       List<(String, String, String, Duration)> comments = const [],
     }) async {
       final row = await db.insert('posts', {
-        'user_id': userId,
+        // As publicações dos vizinhos pertencem às contas deles.
+        'user_id': userId ?? people[name]?['id'],
         'author_name': name,
         'author_initials': initials,
         'content': content,

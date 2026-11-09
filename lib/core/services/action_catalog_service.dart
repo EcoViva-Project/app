@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
@@ -17,6 +19,7 @@ class EcoAction {
     required this.usedToday,
     required this.usedThisWeek,
     required this.tags,
+    this.neighborsToday = 0,
     this.dailyLimit,
     this.weeklyLimit,
     this.remaining,
@@ -49,6 +52,9 @@ class EcoAction {
   final int usedToday;
   final int usedThisWeek;
 
+  /// Quantas outras pessoas registraram esta ação hoje.
+  final int neighborsToday;
+
   /// Quantos registros ainda cabem agora; `null` = sem limite.
   final int? remaining;
   final String? info;
@@ -58,6 +64,21 @@ class EcoAction {
   final IconData? footerIcon;
 
   bool get canRegister => remaining == null || remaining! > 0;
+
+  /// "1 de 2 hoje" ou "1 de 1 nesta semana"; `null` sem limite.
+  String? get usageLabel {
+    if (dailyLimit != null) return '$usedToday de $dailyLimit hoje';
+    if (weeklyLimit != null) return '$usedThisWeek de $weeklyLimit nesta semana';
+    return null;
+  }
+
+  /// "7 vizinhos registraram hoje"; `null` quando ninguém registrou.
+  String? get neighborsTodayLabel {
+    if (neighborsToday <= 0) return null;
+    return neighborsToday == 1
+        ? '1 vizinho registrou hoje'
+        : '$neighborsToday vizinhos registraram hoje';
+  }
 
   /// Maior quantidade aceita em um único registro.
   int get maxQuantity => remaining == null ? 10 : remaining!.clamp(0, 10);
@@ -96,6 +117,7 @@ class EcoAction {
       weeklyLimit: (json['weeklyLimit'] as num?)?.toInt(),
       usedToday: (json['usedToday'] as num?)?.toInt() ?? 0,
       usedThisWeek: (json['usedThisWeek'] as num?)?.toInt() ?? 0,
+      neighborsToday: (json['neighborsToday'] as num?)?.toInt() ?? 0,
       remaining: (json['remaining'] as num?)?.toInt(),
       info: json['info'] as String?,
       infoIcon: infoIconName == null ? null : IconCatalog.resolve(infoIconName),
@@ -158,7 +180,7 @@ class ActionCatalogService extends ChangeNotifier {
   Future<void> load() async {
     _loading = true;
     _error = null;
-    notifyListeners();
+    scheduleMicrotask(notifyListeners);
     try {
       final data = await ApiClient.instance.get('/actions');
       _actions
@@ -169,8 +191,8 @@ class ActionCatalogService extends ChangeNotifier {
           ),
         );
       _loaded = true;
-    } on ApiException catch (error) {
-      _error = error.message;
+    } catch (error) {
+      _error = describeLoadError(error);
       rethrow;
     } finally {
       _loading = false;

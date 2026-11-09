@@ -4,6 +4,7 @@ import 'package:eco_app/core/local/economy.dart';
 import 'package:eco_app/core/local/local_api.dart';
 import 'package:eco_app/core/local/local_seed.dart';
 import 'package:eco_app/core/local/local_store.dart';
+import 'package:eco_app/core/local/places.dart';
 import 'package:eco_app/core/services/api_exception.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -116,11 +117,15 @@ void main() {
       for (final row in h.db.table('action_records')) {
         if (row['kind'] != 'action') continue;
         final date = DateTime.parse('${row['created_at']}');
-        final week = Economy.weekStartKey(date);
+        // O teto vale por pessoa: a conta de demonstração e cada vizinho.
+        final week = '${row['user_id']}/${Economy.weekStartKey(date)}';
         byWeek[week] = (byWeek[week] ?? 0) + (row['points'] as int);
         expect(row['local_date'], Economy.dateKey(date));
       }
-      expect(byWeek.length, greaterThanOrEqualTo(9));
+      expect(
+        byWeek.keys.where((key) => key.startsWith('1/')).length,
+        greaterThanOrEqualTo(9),
+      );
       for (final total in byWeek.values) {
         expect(total, lessThanOrEqualTo(Economy.weeklyCap));
       }
@@ -607,6 +612,205 @@ void main() {
       await h.call('DELETE', '/community/posts/$id');
       final after = (await h.call('GET', '/community/posts'))['posts'] as List;
       expect(after.any((p) => p['id'] == id), isFalse);
+    });
+  });
+
+  group('bairro: estatísticas, mapa e pontos de coleta', () {
+    late _Harness h;
+
+    setUp(() async {
+      h = _Harness();
+      await h.loginDemo();
+    });
+
+    test('números do bairro saem dos registros e sobem ao registrar', () async {
+      final before =
+          await h.call('GET', '/community/stats') as Map<String, dynamic>;
+      // ignore: avoid_print
+      print('estatísticas do bairro: $before');
+      expect(before['members'], LocalSeed.neighbors.length + 1);
+      expect(before['activeNeighbors'], greaterThan(12));
+      expect(before['actionsToday'], greaterThan(5));
+      final goal = before['goal'] as Map<String, dynamic>;
+      expect(goal['target'], LocalSeed.weeklyGoalTarget);
+      expect(goal['current'], before['actionsThisWeek']);
+      // Quarta à tarde: perto de 40% da meta, no ritmo para fechar no domingo.
+      expect(goal['progress'], inInclusiveRange(0.3, 0.6));
+      expect(goal['daysLeft'], 5);
+      expect(goal['contributors'], greaterThan(10));
+
+      final ranking = before['ranking'] as List;
+      expect(ranking, hasLength(5));
+      expect(ranking.first['position'], 1);
+      expect(before['myPosition'], lessThanOrEqualTo(3));
+      expect(before['myWeeklyPoints'], 375);
+      for (final entry in ranking) {
+        expect(entry['points'], lessThanOrEqualTo(Economy.weeklyCap));
+      }
+
+      await h.register(5);
+      final after =
+          await h.call('GET', '/community/stats') as Map<String, dynamic>;
+      expect(after['actionsThisWeek'], before['actionsThisWeek'] + 1);
+      expect(after['actionsToday'], before['actionsToday'] + 1);
+      expect(after['goal']['current'], goal['current'] + 1);
+      expect(after['myWeeklyPoints'], 380);
+    });
+
+    test('cada ação diz quantos vizinhos registraram hoje', () async {
+      final actions = (await h.call('GET', '/actions'))['actions'] as List;
+      final tap = actions.firstWhere((a) => a['id'] == 1);
+      expect(tap['neighborsToday'], greaterThan(3));
+      final total = actions.fold<int>(
+        0,
+        (sum, a) => sum + (a['neighborsToday'] as int),
+      );
+      expect(total, greaterThan(8));
+    });
+
+    test('participantes dos desafios são contados de verdade', () async {
+      final challenges =
+          (await h.call('GET', '/challenges'))['challenges'] as List;
+      expect(challenges.firstWhere((c) => c['id'] == 1)['participants'], 10);
+      final before = challenges.firstWhere((c) => c['id'] == 4)['participants'];
+      final joined = await h.call('POST', '/challenges/4/join');
+      expect(joined['challenge']['participants'], before + 1);
+    });
+
+    test('pessoa aparece no mapa na região do bairro, nunca no ponto exato', () async {
+      final me = (await h.call('GET', '/auth/me'))['user'] as Map<String, dynamic>;
+      expect(me['neighborhood'], 'Boa Vista');
+      expect(me['city'], 'São José do Rio Preto');
+      final location = me['location'] as Map<String, dynamic>;
+      final boaVista = Places.findNeighborhood('boa vista')!;
+      final distance = Places.distanceMeters(
+        boaVista.lat,
+        boaVista.lon,
+        location['lat'] as double,
+        location['lon'] as double,
+      );
+      expect(distance, inInclusiveRange(1, 600));
+
+      final map = await h.call('GET', '/community/map') as Map<String, dynamic>;
+      expect(map['neighbors'], hasLength(LocalSeed.neighbors.length));
+      expect(map['me']['visible'], isTrue);
+      expect(map['attribution'], contains('OpenStreetMap'));
+      for (final neighbor in map['neighbors'] as List) {
+        expect(neighbor['name'], endsWith('.'));
+        expect(neighbor.containsKey('email'), isFalse);
+        expect(neighbor.containsKey('address'), isFalse);
+      }
+
+      // Quem desliga a preferência some do mapa dos outros.
+      await h.call(
+        'PATCH',
+        '/users/me/preferences',
+        body: {'privacyLocation': false},
+      );
+      final hidden = await h.call('GET', '/community/map');
+      expect(hidden['me']['visible'], isFalse);
+    });
+
+    test('cadastro com endereço posiciona pelo bairro', () async {
+      Future<dynamic> register(Map<String, dynamic> body) =>
+          h.call('POST', '/auth/register', body: body, anonymous: true);
+
+      await expectLater(
+        register({
+          'name': 'Ana Silva',
+          'email': 'ana@test.app',
+          'password': 'segredo1',
+          'cep': '123',
+        }),
+        _apiError(400),
+      );
+      final created =
+          await register({
+                'name': 'Ana Silva',
+                'email': 'ana@test.app',
+                'password': 'segredo1',
+                'cep': '15015110',
+                'street': 'Rua Bernardino de Campos',
+                'number': '3000',
+                'neighborhood': 'vila redentora',
+                'city': 'São José do Rio Preto',
+                'state': 'sp',
+              })
+              as Map<String, dynamic>;
+      final user = created['user'] as Map<String, dynamic>;
+      expect(user['address']['cep'], '15015-110');
+      expect(user['address']['street'], 'Rua Bernardino de Campos');
+      expect(user['address']['state'], 'SP');
+      final redentora = Places.findNeighborhood('Vila Redentora')!;
+      expect(
+        Places.distanceMeters(
+          redentora.lat,
+          redentora.lon,
+          user['location']['lat'] as double,
+          user['location']['lon'] as double,
+        ),
+        lessThan(600),
+      );
+
+      final found = await h.call(
+        'GET',
+        '/places/neighborhoods',
+        query: {'search': 'redent'},
+      );
+      expect(found['neighborhoods'], contains('Vila Redentora'));
+    });
+
+    test('pontos de coleta vêm ordenados pela distância', () async {
+      final center = Places.findNeighborhood('Centro')!;
+      final far = Places.findNeighborhood('Vila Toninho')!;
+      for (final (name, place) in [('Longe', far), ('Perto', center)]) {
+        await h.db.insert('collection_points', {
+          'name': name,
+          'type': 'ecoponto',
+          'materials': '["papel","vidro"]',
+          'address': 'Endereço de teste',
+          'neighborhood': place.name,
+          'lat': place.lat,
+          'lon': place.lon,
+        });
+      }
+      await h.db.insert('collection_points', {
+        'name': 'Sem coordenada',
+        'type': 'oleo',
+        'materials': '[]',
+      });
+
+      final points =
+          (await h.call('GET', '/collection-points'))['points'] as List;
+      final mine = points.where(
+        (p) => ['Perto', 'Longe', 'Sem coordenada'].contains(p['name']),
+      );
+      expect(mine.map((p) => p['name']).toList(), [
+        'Perto',
+        'Longe',
+        'Sem coordenada',
+      ]);
+      expect(mine.first['distanceMeters'], lessThan(2500));
+      expect(mine.first['materials'], ['papel', 'vidro']);
+      expect(mine.last['distanceMeters'], isNull);
+
+      final filtered =
+          (await h.call(
+                'GET',
+                '/collection-points',
+                query: {'type': 'oleo'},
+              ))['points']
+              as List;
+      expect(filtered.map((p) => p['name']), contains('Sem coordenada'));
+      expect(filtered.any((p) => p['name'] == 'Perto'), isFalse);
+    });
+
+    test('dica do dia vem do banco e muda com o dia', () async {
+      final today = (await h.call('GET', '/tips/today'))['tip'];
+      expect(today['text'], isNotEmpty);
+      h.clock = h.clock.add(const Duration(days: 1));
+      final tomorrow = (await h.call('GET', '/tips/today'))['tip'];
+      expect(tomorrow['id'], isNot(today['id']));
     });
   });
 

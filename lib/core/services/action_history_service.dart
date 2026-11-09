@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show IconData;
 
@@ -6,6 +8,7 @@ import 'action_catalog_service.dart';
 import 'api_client.dart';
 import 'challenge_service.dart';
 import 'icon_catalog.dart';
+import 'neighborhood_service.dart';
 import 'notification_service.dart';
 import 'user_progress_service.dart';
 
@@ -149,7 +152,7 @@ class ActionHistoryService extends ChangeNotifier {
   Future<void> load() async {
     _loading = true;
     _error = null;
-    notifyListeners();
+    scheduleMicrotask(notifyListeners);
     try {
       final data = await ApiClient.instance.get(
         '/records',
@@ -164,8 +167,8 @@ class ActionHistoryService extends ChangeNotifier {
           ),
         );
       _loaded = true;
-    } on ApiException catch (error) {
-      _error = error.message;
+    } catch (error) {
+      _error = describeLoadError(error);
       rethrow;
     } finally {
       _loading = false;
@@ -221,6 +224,7 @@ class ActionHistoryService extends ChangeNotifier {
     }
     ActionCatalogService.instance.load().catchError((_) {});
     NotificationService.instance.load().catchError((_) {});
+    NeighborhoodService.instance.refreshStats().catchError((_) {});
 
     return result;
   }
