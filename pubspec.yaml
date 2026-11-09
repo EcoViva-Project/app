@@ -32,8 +32,8 @@ flutter:
     - assets/
     - assets/images/
     - assets/map/
-    - assets/fonts/PlusJakartaSans/
-    - assets/fonts/PlusJakartaSans/static/
+  # As fontes entram só pela seção abaixo (quatro pesos). Listar a pasta em
+  # `assets` empacotava também as 12 variações que o app não usa.
   fonts:
     - family: PlusJakartaSans
       fonts:

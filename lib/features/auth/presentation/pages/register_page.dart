@@ -6,6 +6,7 @@ import '../../../../core/services/api_client.dart';
 import '../../../../core/services/auth_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../widgets/address_fields.dart';
 import '../widgets/auth_widgets.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -20,7 +21,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final _errorKey = GlobalKey();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _neighborhoodController = TextEditingController();
+  final _address = AddressControllers();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
   bool _loading = false;
@@ -30,7 +31,7 @@ class _RegisterPageState extends State<RegisterPage> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
-    _neighborhoodController.dispose();
+    _address.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
     super.dispose();
@@ -61,7 +62,13 @@ class _RegisterPageState extends State<RegisterPage> {
         name: _nameController.text,
         email: _emailController.text,
         password: _passwordController.text,
-        neighborhood: _neighborhoodController.text,
+        neighborhood: _address.neighborhood.text,
+        cep: _address.cepDigits,
+        street: _address.street.text,
+        number: _address.number.text,
+        complement: _address.complement.text,
+        city: _address.city.text,
+        state: _address.stateCode,
       );
       // Com a sessão aberta, o roteador leva ao início sozinho.
     } on ApiException catch (error) {
@@ -168,21 +175,6 @@ class _RegisterPageState extends State<RegisterPage> {
                               readOnly: _loading,
                             ),
                             const SizedBox(height: 12),
-                            TextFormField(
-                              controller: _neighborhoodController,
-                              readOnly: _loading,
-                              textCapitalization: TextCapitalization.words,
-                              autofillHints: const [AutofillHints.sublocality],
-                              textInputAction: TextInputAction.next,
-                              inputFormatters: [
-                                LengthLimitingTextInputFormatter(80),
-                              ],
-                              decoration: const InputDecoration(
-                                labelText: 'Bairro (opcional)',
-                                prefixIcon: Icon(Icons.location_on_outlined),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
                             AuthPasswordField(
                               controller: _passwordController,
                               readOnly: _loading,
@@ -199,6 +191,12 @@ class _RegisterPageState extends State<RegisterPage> {
                               autofillHints: const [AutofillHints.newPassword],
                               validator: _validateConfirmation,
                               onFieldSubmitted: (_) => _submit(),
+                            ),
+                            const SizedBox(height: 24),
+                            AddressFields(
+                              controllers: _address,
+                              enabled: !_loading,
+                              onSubmitted: _submit,
                             ),
                           ],
                         ),

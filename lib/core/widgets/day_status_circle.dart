@@ -30,6 +30,21 @@ class DayStatusCircle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highlighted = done || isToday;
+    final status =
+        done
+            ? 'concluído'
+            : isToday
+            ? 'hoje, ainda sem registro'
+            : 'pendente';
+    // Um rótulo só para o leitor de tela, no lugar de ícones soltos.
+    return Semantics(
+      label: '$label: $status${points == null ? '' : ', $points pontos'}',
+      excludeSemantics: true,
+      child: _content(highlighted),
+    );
+  }
+
+  Widget _content(bool highlighted) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -45,7 +60,7 @@ class DayStatusCircle extends StatelessWidget {
             style: AppTextStyles.labelSm.copyWith(
               color: AppColors.brandDarkAccent,
               fontWeight: FontWeight.w700,
-              fontSize: 10,
+              fontSize: 12,
             ),
           ),
         ),
@@ -97,7 +112,7 @@ class DayStatusCircle extends StatelessWidget {
                     ? AppColors.brandTextPrimary
                     : AppColors.brandTextSecondary,
             fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
-            fontSize: labelFontSize,
+            fontSize: labelFontSize ?? 12,
           ),
         ),
       ],

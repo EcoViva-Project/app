@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/services/action_catalog_service.dart';
 import '../../../../core/services/action_history_service.dart';
 import '../../../../core/services/challenge_service.dart';
+import '../../../../core/services/neighborhood_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -299,11 +300,18 @@ class _WeekSummary extends StatelessWidget {
     final total = days.fold<int>(0, (sum, day) => sum + day.actions);
     final hasGoal = weeklyGoal > 0;
     final goalReached = hasGoal && total >= weeklyGoal;
-    final goalText =
-        hasGoal
-            ? '$total de $weeklyGoal '
-                '${weeklyGoal == 1 ? 'ação' : 'ações'} nesta semana'
-            : countLabel(total, 'ação nesta semana', 'ações nesta semana');
+    final String goalText;
+    if (hasGoal && total > weeklyGoal) {
+      goalText =
+          'Meta da semana batida: ${countLabel(total, 'ação', 'ações')} '
+          '(meta de ${UserProgressService.formatNumber(weeklyGoal)})';
+    } else if (hasGoal) {
+      goalText =
+          '${UserProgressService.formatNumber(total)} de '
+          '${countLabel(weeklyGoal, 'ação', 'ações')} nesta semana';
+    } else {
+      goalText = countLabel(total, 'ação nesta semana', 'ações nesta semana');
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -382,6 +390,138 @@ class _WeekDay extends StatelessWidget {
           labelFontSize: 12,
         ),
       ),
+    );
+  }
+}
+
+/// "Sua comunidade": números do bairro calculados pela API sobre os
+/// registros de todos. O cartão inteiro abre a aba Comunidade.
+class HomeCommunitySection extends StatelessWidget {
+  const HomeCommunitySection({super.key, required this.stats});
+
+  final CommunityStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final goal = stats.goal;
+    final position = stats.myPosition;
+    final neighbors = countLabel(
+      stats.activeNeighbors,
+      'vizinho ativo',
+      'vizinhos ativos',
+    );
+    final today = countLabel(stats.actionsToday, 'ação hoje', 'ações hoje');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Sua comunidade'),
+        const SizedBox(height: 8),
+        EcoCard(
+          radius: 20,
+          padding: const EdgeInsets.all(16),
+          onTap: () => context.go('/comunidade'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Wrap(
+                      spacing: 16,
+                      runSpacing: 8,
+                      children: [
+                        _CommunityStat(
+                          icon: Icons.groups_outlined,
+                          text: neighbors,
+                        ),
+                        _CommunityStat(icon: Icons.eco_outlined, text: today),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const ExcludeSemantics(
+                    child: Icon(
+                      Icons.chevron_right,
+                      color: AppColors.brandDarkAccent,
+                    ),
+                  ),
+                ],
+              ),
+              if (goal != null) ...[
+                const SizedBox(height: 14),
+                Text(
+                  goal.title,
+                  style: AppTextStyles.labelMd.copyWith(
+                    color: AppColors.brandTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      goal.countLabel,
+                      style: AppTextStyles.bodyMd.copyWith(
+                        color: AppColors.brandTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      goal.reached ? 'Meta batida' : goal.deadlineLabel,
+                      style: AppTextStyles.labelMd.copyWith(
+                        color: AppColors.brandTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                EcoProgressBar(
+                  value: goal.progress,
+                  semanticsLabel: 'Meta coletiva: ${goal.percentLabel}',
+                ),
+              ],
+              if (position != null) ...[
+                const SizedBox(height: 12),
+                _CommunityStat(
+                  icon: Icons.emoji_events_outlined,
+                  text: 'Você está em $positionº lugar no ranking da semana',
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CommunityStat extends StatelessWidget {
+  const _CommunityStat({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ExcludeSemantics(
+          child: Icon(icon, size: 18, color: AppColors.brandDarkAccent),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            text,
+            style: AppTextStyles.labelLg.copyWith(
+              color: AppColors.brandTextPrimary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -734,33 +874,16 @@ class HomeRecentActivity extends StatelessWidget {
   }
 }
 
-/// "Dica do dia": conteúdo editorial fixo, escolhido pelo dia do ano.
+/// "Dica do dia": vem da API (`NeighborhoodService.tip`), com categoria e
+/// ícone.
 class HomeDailyTip extends StatelessWidget {
-  const HomeDailyTip({super.key});
+  const HomeDailyTip({super.key, required this.tip});
 
-  static const List<String> _tips = [
-    'Aproveite a água do enxágue de frutas e verduras para regar as plantas.',
-    'Deixe uma sacola reutilizável na bolsa ou na mochila para as compras de última hora.',
-    'Tire da tomada os aparelhos que ficam em espera quando não estiverem em uso.',
-    'Em trajetos curtos, vá a pé ou de bicicleta: faz bem para a saúde e para o ar do bairro.',
-    'Separe o lixo seco do orgânico: materiais limpos e secos são mais fáceis de reciclar.',
-    'Cascas e restos de vegetais podem virar adubo em uma composteira doméstica.',
-    'Antes de comprar algo novo, veja se dá para consertar, trocar ou pegar emprestado.',
-  ];
-
-  /// Dica de um dia qualquer (a mesma durante o dia inteiro).
-  static String tipFor(DateTime date) {
-    final dayOfYear =
-        DateTime.utc(
-          date.year,
-          date.month,
-          date.day,
-        ).difference(DateTime.utc(date.year)).inDays;
-    return _tips[dayOfYear % _tips.length];
-  }
+  final DailyTip tip;
 
   @override
   Widget build(BuildContext context) {
+    final category = tip.categoryLabel.trim();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -771,10 +894,8 @@ class HomeDailyTip extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.lightbulb_outline,
-            color: AppColors.tertiary,
-            size: 22,
+          ExcludeSemantics(
+            child: Icon(tip.icon, color: AppColors.tertiary, size: 22),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -782,7 +903,7 @@ class HomeDailyTip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Dica do dia',
+                  category.isEmpty ? 'Dica do dia' : 'Dica do dia · $category',
                   style: AppTextStyles.labelMd.copyWith(
                     color: AppColors.brandDarkAccent,
                     fontWeight: FontWeight.w700,
@@ -790,7 +911,7 @@ class HomeDailyTip extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  tipFor(DateTime.now()),
+                  tip.text,
                   style: AppTextStyles.bodySm.copyWith(
                     color: AppColors.brandTextPrimary,
                   ),

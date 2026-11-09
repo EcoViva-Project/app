@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/services/action_catalog_service.dart';
 import '../../../../core/services/api_client.dart';
+import '../../../../core/services/neighborhood_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
@@ -307,16 +308,16 @@ class _AcoesPageState extends State<AcoesPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.brandBackground,
-      appBar: const AppPageHeader(
-        pageIcon: Icons.eco,
-        title: 'Ações',
-      ),
+      appBar: const AppPageHeader(pageIcon: Icons.eco, title: 'Ações'),
       body: SafeArea(
         child: RefreshIndicator(
           color: AppColors.brandDarkAccent,
           onRefresh: _load,
           child: ListenableBuilder(
-            listenable: _catalog,
+            listenable: Listenable.merge([
+              _catalog,
+              NeighborhoodService.instance,
+            ]),
             builder: (context, _) => _buildContent(),
           ),
         ),
@@ -333,6 +334,21 @@ class _AcoesPageState extends State<AcoesPage> {
         ),
       ),
     ];
+
+    final actionsToday = NeighborhoodService.instance.stats?.actionsToday;
+    if (actionsToday != null) {
+      slivers.add(
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: _IconText(
+              icon: Icons.groups_outlined,
+              text: _communityTodayLabel(actionsToday),
+            ),
+          ),
+        ),
+      );
+    }
 
     if (!_catalog.isLoaded) {
       slivers.add(
@@ -358,7 +374,9 @@ class _AcoesPageState extends State<AcoesPage> {
 
       slivers
         ..add(SliverToBoxAdapter(child: _buildSearchRow()))
-        ..add(SliverToBoxAdapter(child: _buildCategoryChips(categories, selected)))
+        ..add(
+          SliverToBoxAdapter(child: _buildCategoryChips(categories, selected)),
+        )
         ..add(
           SliverToBoxAdapter(
             child: Padding(
@@ -426,6 +444,14 @@ class _AcoesPageState extends State<AcoesPage> {
       message: message ?? 'Não foi possível carregar as ações.',
       onRetry: _load,
     );
+  }
+
+  /// "Hoje na comunidade: 12 ações registradas".
+  static String _communityTodayLabel(int count) {
+    final formatted = UserProgressService.formatNumber(count);
+    return count == 1
+        ? 'Hoje na comunidade: 1 ação registrada'
+        : 'Hoje na comunidade: $formatted ações registradas';
   }
 
   String _countLabel(int count, ActionCategory? category) {
@@ -609,23 +635,13 @@ class _ActionCard extends StatelessWidget {
   final EcoAction action;
   final VoidCallback onRegister;
 
-  /// "1 de 2 hoje" ou "0 de 1 nesta semana"; `null` se a ação não tem limite.
-  String? get _usageLabel {
-    final daily = action.dailyLimit;
-    final weekly = action.weeklyLimit;
-    if (weekly != null && (daily == null || action.usedThisWeek >= weekly)) {
-      return '${action.usedThisWeek} de $weekly nesta semana';
-    }
-    if (daily != null) return '${action.usedToday} de $daily hoje';
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
     final info = action.info ?? '';
     final footer = action.footerInfo ?? '';
     final limit = action.limitLabel;
-    final usage = _usageLabel;
+    final usage = action.usageLabel;
+    final neighbors = action.neighborsTodayLabel;
     final meta = <Widget>[
       if (action.liters > 0)
         _MetaChip(
@@ -737,6 +753,10 @@ class _ActionCard extends StatelessWidget {
           if (meta.isNotEmpty) ...[
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 6, children: meta),
+          ],
+          if (neighbors != null) ...[
+            const SizedBox(height: 10),
+            _IconText(icon: Icons.group_outlined, text: neighbors),
           ],
           if (footer.isNotEmpty) ...[
             const SizedBox(height: 10),

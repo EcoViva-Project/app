@@ -6,6 +6,7 @@ import '../../../../core/services/action_catalog_service.dart';
 import '../../../../core/services/action_history_service.dart';
 import '../../../../core/services/auth_service.dart';
 import '../../../../core/services/challenge_service.dart';
+import '../../../../core/services/neighborhood_service.dart';
 import '../../../../core/services/reward_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -36,6 +37,7 @@ class _HomePageState extends State<HomePage> {
     AchievementService.instance,
     RewardService.instance,
     ActionCatalogService.instance,
+    NeighborhoodService.instance,
   ]);
 
   Future<void> _refresh() async {
@@ -96,6 +98,9 @@ class _HomePageState extends State<HomePage> {
     final history = ActionHistoryService.instance;
     final featured = ChallengeService.instance.featured;
     final categories = ActionCatalogService.instance.categories;
+    final neighborhood = NeighborhoodService.instance;
+    final stats = neighborhood.isLoaded ? neighborhood.stats : null;
+    final tip = neighborhood.tip;
     const gap = SizedBox(height: 20);
 
     return Column(
@@ -133,6 +138,7 @@ class _HomePageState extends State<HomePage> {
               gap,
               HomeWeekSection(history: history, weeklyGoal: auth.weeklyGoal),
               gap,
+              if (stats != null) ...[HomeCommunitySection(stats: stats), gap],
               if (featured != null) ...[
                 HomeFeaturedChallenge(challenge: featured),
                 gap,
@@ -155,8 +161,10 @@ class _HomePageState extends State<HomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               HomeRecentActivity(history: history),
-              gap,
-              const HomeDailyTip(),
+              if (tip != null && tip.text.isNotEmpty) ...[
+                gap,
+                HomeDailyTip(tip: tip),
+              ],
             ],
           ),
         ),

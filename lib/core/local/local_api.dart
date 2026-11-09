@@ -92,6 +92,11 @@ class LocalApi {
       case ('POST', ['demo', 'reset']):
         await resetDemo();
         return {'ok': true};
+      // Lista pública de nomes de bairros: o cadastro usa antes de haver sessão.
+      case ('GET', ['places', 'neighborhoods']):
+        return {
+          'neighborhoods': Places.searchNeighborhoods(query['search'] ?? ''),
+        };
     }
 
     final user = _requireUser(token);
@@ -183,10 +188,6 @@ class LocalApi {
         return _communityMap(user);
       case ('GET', ['collection-points']):
         return {'points': _listCollectionPoints(user, query)};
-      case ('GET', ['places', 'neighborhoods']):
-        return {
-          'neighborhoods': Places.searchNeighborhoods(query['search'] ?? ''),
-        };
       case ('GET', ['tips', 'today']):
         return {'tip': _tipOfTheDay()};
       case ('GET', ['community', 'posts']):
