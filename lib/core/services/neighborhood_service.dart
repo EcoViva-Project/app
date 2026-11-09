@@ -201,9 +201,37 @@ class CollectionPoint {
     return 'A ${km.toStringAsFixed(1).replaceAll('.', ',')} km';
   }
 
-  /// Tipo com a primeira letra maiúscula, para exibir.
-  String get typeLabel =>
-      type.isEmpty ? 'Ponto de coleta' : type[0].toUpperCase() + type.substring(1);
+  static const Map<String, String> _typeLabels = {
+    'ecoponto_municipal': 'Ecoponto municipal',
+    'cooperativa': 'Cooperativa de reciclagem',
+    'entrega_voluntaria': 'Entrega voluntária',
+    'eletronicos': 'Eletrônicos',
+    'pilhas_baterias': 'Pilhas e baterias',
+    'lampadas': 'Lâmpadas',
+    'oleo_cozinha': 'Óleo de cozinha',
+    'medicamentos': 'Medicamentos',
+    'pneus': 'Pneus',
+    'vidro': 'Vidro',
+    'outros': 'Outros materiais',
+  };
+
+  /// Tipos conhecidos, na ordem em que aparecem nos filtros.
+  static List<String> get knownTypes => _typeLabels.keys.toList();
+
+  /// Nome de um tipo para exibir ("Óleo de cozinha").
+  static String labelForType(String type) {
+    final known = _typeLabels[type];
+    if (known != null) return known;
+    if (type.isEmpty) return 'Ponto de coleta';
+    final text = type.replaceAll('_', ' ');
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
+  /// Tipo do ponto para exibir.
+  String get typeLabel => labelForType(type);
+
+  /// A informação veio de fonte oficial e recente.
+  bool get isConfirmed => (confidence ?? '').toLowerCase() == 'alta';
 
   IconData get icon {
     final key = type.toLowerCase();

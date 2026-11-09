@@ -38,6 +38,26 @@ function num(value) {
     : 'null';
 }
 
+/**
+ * Observações para mostrar ao usuário: ficam as frases sobre o uso do ponto
+ * e saem as anotações de método do levantamento (origem da coordenada, fontes).
+ * A observação completa continua no arquivo JSON original.
+ */
+function publicNotes(text) {
+  if (!text) return null;
+  const method =
+    /(coordenad|openstreetmap|\bosm\b|google|mapa oficial|pol[ií]gono|geocod|confere|fonte|lista[s]? da prefeitura|nominatim|precis[aã]o|levantamento|consta n|posi[cç][aã]o na via|interpola|listado em|nome conforme|n[aã]o cita|logmed|green eletron|reciclus|tamb[eé]m lista)/i;
+  // Abreviações ("Av.", "R.") não encerram frase.
+  const guarded = String(text).replace(
+    /\b(Av|R|Dr|Dra|Prof|Jd|Pq|Vl|Sto|Sta|S|Cel|Cap|Gal|Eng|Pe|n|nº|tel)\.(\s)/gi,
+    '$1§$2',
+  );
+  const kept = guarded
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !method.test(sentence));
+  return kept.join(' ').replace(/§/g, '.').trim() || null;
+}
+
 function readJson(name) {
   const file = path.join(dataDir, name);
   if (!fs.existsSync(file)) return null;
@@ -102,7 +122,7 @@ const pointRows = list
     'source_url': ${q(p.fonte_url)},
     'source_date': ${q(p.fonte_data)},
     'confidence': ${q(p.confianca)},
-    'notes': ${q(p.observacoes)},
+    'notes': ${q(publicNotes(p.observacoes))},
   },`;
   })
   .join('\n');
