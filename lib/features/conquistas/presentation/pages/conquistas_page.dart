@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/services/achievement_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/app_page_header.dart';
 import '../../../../core/widgets/state_views.dart';
 
 enum _AchievementFilter { all, unlocked, progress }
@@ -31,11 +31,16 @@ class _ConquistasPageState extends State<ConquistasPage> {
   @override
   void initState() {
     super.initState();
-    if (_service.isLoaded) return;
+    if (_service.isLoaded && _progress.isLoaded) return;
     // `load()` avisa os ouvintes na hora. Chamá-lo depois do primeiro quadro
     // evita avisar as outras telas no meio da montagem desta.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_service.isLoaded) _reload();
+      if (!mounted) return;
+      if (!_service.isLoaded) {
+        _reload();
+      } else if (!_progress.isLoaded && !_progress.loading) {
+        _progress.load().catchError((_) {});
+      }
     });
   }
 
@@ -73,22 +78,11 @@ class _ConquistasPageState extends State<ConquistasPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.brandBackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.brandBackground,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          tooltip: 'Voltar',
-          icon: const Icon(Icons.arrow_back, color: AppColors.brandTextPrimary),
-          onPressed:
-              () => context.canPop() ? context.pop() : context.go('/perfil'),
-        ),
-        title: Text(
-          'Minhas Conquistas',
-          style: AppTextStyles.headlineSm.copyWith(
-            color: AppColors.brandTextPrimary,
-          ),
-        ),
+      appBar: const AppPageHeader(
+        pageIcon: Icons.military_tech,
+        title: 'Minhas Conquistas',
+        showBack: true,
+        backFallback: '/perfil',
       ),
       body: SafeArea(
         child: AnimatedBuilder(

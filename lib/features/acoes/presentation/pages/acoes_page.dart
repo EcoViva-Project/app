@@ -309,7 +309,7 @@ class _AcoesPageState extends State<AcoesPage> {
       backgroundColor: AppColors.brandBackground,
       appBar: const AppPageHeader(
         pageIcon: Icons.eco,
-        title: 'Ações Sustentáveis',
+        title: 'Ações',
       ),
       body: SafeArea(
         child: RefreshIndicator(

@@ -54,6 +54,16 @@ class AppTheme {
         unselectedItemColor: AppColors.brandTextSecondary,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
+        // O tamanho dos rótulos (12 nos dois estados) é definido no próprio
+        // BottomNavigationBar, em lib/app/app.dart.
+        selectedLabelStyle: TextStyle(
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.2,
+        ),
+        unselectedLabelStyle: TextStyle(
+          fontWeight: FontWeight.w500,
+          letterSpacing: -0.2,
+        ),
       ),
       dividerColor: AppColors.brandBorder,
       // Botões com o verde escuro da marca: texto branco com contraste alto e

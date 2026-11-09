@@ -594,7 +594,7 @@ class LocalSeed {
       createdAt: firstDay.add(const Duration(hours: 7)),
     );
     // Meta mensal compatível com o ritmo da conta de demonstração.
-    await db.update('users', clara, {'monthly_goal': 120});
+    await db.update('users', clara, {'monthly_goal': 120, 'weekly_goal': 25});
 
     DbRow action(int number) => db.byId('actions', number)!;
     DbRow challenge(int number) => db.byId('challenges', number)!;

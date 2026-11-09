@@ -34,6 +34,10 @@ class AppShell extends StatelessWidget {
       body: navigationShell,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: navigationShell.currentIndex,
+        // Mesmo tamanho nos dois estados: o rótulo mais longo ("Comunidade")
+        // cabe inteiro em telas estreitas e a barra não "pula" ao trocar de aba.
+        selectedFontSize: 12,
+        unselectedFontSize: 12,
         onTap:
             (index) => navigationShell.goBranch(
               index,

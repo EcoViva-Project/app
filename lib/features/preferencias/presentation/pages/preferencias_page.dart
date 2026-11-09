@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import '../../../../core/services/api_client.dart';
+
 import '../../../../core/services/auth_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/app_page_header.dart';
+import '../../../../core/widgets/state_views.dart';
 
+/// Preferências salvas na conta: notificações, privacidade e meta semanal.
 class PreferenciasPage extends StatefulWidget {
   const PreferenciasPage({super.key});
 
@@ -13,202 +15,131 @@ class PreferenciasPage extends StatefulWidget {
 }
 
 class _PreferenciasPageState extends State<PreferenciasPage> {
-  bool _pushNotifications = true;
-  bool _dailyReminders = true;
-  bool _weeklySummary = false;
-  bool _shareProgress = true;
-  bool _appearInRanking = true;
-  int _weeklyGoal = 5;
-  String _neighborhood = 'Jardim das Flores';
+  static const String _weeklyGoalKey = 'weeklyGoal';
+  static const List<int> _goalOptions = [3, 5, 7, 10, 14];
 
-  @override
-  void initState() {
-    super.initState();
-    final auth = AuthService.instance;
-    final prefs = auth.preferences;
-    _pushNotifications = prefs['notificationsEnabled'] as bool? ?? true;
-    _dailyReminders = prefs['remindersEnabled'] as bool? ?? true;
-    _shareProgress = prefs['privacyProfile'] as bool? ?? true;
-    _appearInRanking = prefs['privacyLocation'] as bool? ?? true;
-    _weeklyGoal = (auth.user?['weeklyGoal'] as num?)?.toInt() ?? 5;
-    _neighborhood = auth.neighborhood;
-  }
+  final AuthService _auth = AuthService.instance;
 
-  Future<void> _savePreference(String key, bool value) async {
+  /// Valores mostrados enquanto a API confirma a mudança.
+  final Map<String, Object> _pending = {};
+
+  /// Chaves sendo salvas agora (o controle fica bloqueado).
+  final Set<String> _saving = {};
+
+  bool _flag(String key) =>
+      _pending[key] as bool? ?? _auth.preferences[key] as bool? ?? true;
+
+  int get _weeklyGoal => _pending[_weeklyGoalKey] as int? ?? _auth.weeklyGoal;
+
+  /// O único caminho de gravação. Mostra o valor novo na hora e volta ao
+  /// valor salvo se a API recusar.
+  Future<void> _save(String key, Object value) async {
+    if (_saving.contains(key)) return;
+    setState(() {
+      _saving.add(key);
+      _pending[key] = value;
+    });
     try {
-      await AuthService.instance.updatePreferences({key: value});
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      if (key == _weeklyGoalKey) {
+        await _auth.updateProfile(weeklyGoal: value as int);
+      } else {
+        await _auth.updatePreferences({key: value});
+      }
+    } catch (error) {
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          error,
+          fallback: 'Não foi possível salvar. Tente de novo.',
+        );
+      }
+    } finally {
+      if (mounted) {
+        // Sem o valor pendente, a tela volta a mostrar o que está na conta:
+        // o novo, se salvou; o anterior, se falhou.
+        setState(() {
+          _saving.remove(key);
+          _pending.remove(key);
+        });
+      }
     }
   }
-
-  Future<void> _saveWeeklyGoal(int goal) async {
-    try {
-      await AuthService.instance.updateProfile(weeklyGoal: goal);
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
-    }
-  }
-
-  Future<void> _saveNeighborhood(String neighborhood) async {
-    try {
-      await AuthService.instance.updateProfile(neighborhood: neighborhood);
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
-    }
-  }
-
-  static const List<int> _goalOptions = [3, 5, 7, 10];
-  static const List<String> _neighborhoods = [
-    'Jardim das Flores',
-    'Vila Verde',
-    'Parque das Águas',
-    'Centro',
-  ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.brandBackground,
-      appBar: AppBar(
-        backgroundColor: AppColors.brandBackground,
-        elevation: 0,
-        leading: IconButton(
-          tooltip: 'Voltar',
-          icon: const Icon(Icons.arrow_back, color: AppColors.brandTextPrimary),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/perfil');
-            }
-          },
-        ),
-        title: Text(
-          'Preferências',
-          style: AppTextStyles.headlineSm.copyWith(
-            color: AppColors.brandTextPrimary,
-          ),
-        ),
+      appBar: const AppPageHeader(
+        pageIcon: Icons.tune,
+        title: 'Preferências',
+        showBack: true,
+        backFallback: '/perfil',
+        showProfileAvatar: false,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Ajuste sua experiência',
-                style: AppTextStyles.headlineMd.copyWith(
-                  color: AppColors.brandTextPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Escolha como quer ser lembrada e o que compartilhar com a comunidade.',
-                style: AppTextStyles.bodyMd.copyWith(
-                  color: AppColors.brandTextSecondary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _sectionCard(
-                title: 'Notificações',
-                subtitle: 'Lembretes para manter seus hábitos em dia.',
+        child: AnimatedBuilder(
+          animation: _auth,
+          builder:
+              (context, _) => ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
-                  _switchTile(
-                    icon: Icons.notifications_active_outlined,
-                    title: 'Notificações push',
-                    subtitle: 'Novidades, conquistas e desafios do bairro.',
-                    value: _pushNotifications,
-                    onChanged: (value) {
-                      setState(() => _pushNotifications = value);
-                      _savePreference('notificationsEnabled', value);
-                    },
-                  ),
-                  const Divider(height: 1, color: AppColors.brandBorder),
-                  _switchTile(
-                    icon: Icons.alarm,
-                    title: 'Lembretes diários',
-                    subtitle:
-                        'Um lembrete gentil às 08:00 para registrar ações.',
-                    value: _dailyReminders,
-                    onChanged: (value) {
-                      setState(() => _dailyReminders = value);
-                      _savePreference('remindersEnabled', value);
-                    },
-                  ),
-                  const Divider(height: 1, color: AppColors.brandBorder),
-                  _switchTile(
-                    icon: Icons.mark_email_unread_outlined,
-                    title: 'Resumo semanal',
-                    subtitle:
-                        'Seu impacto e o da comunidade toda segunda-feira.',
-                    value: _weeklySummary,
-                    onChanged:
-                        (value) => setState(() => _weeklySummary = value),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _sectionCard(
-                title: 'Metas pessoais',
-                subtitle:
-                    'Quantas ações sustentáveis você quer registrar por semana?',
-                children: [
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  _section(
+                    title: 'Notificações',
                     children: [
-                      for (final option in _goalOptions)
-                        ChoiceChip(
-                          label: Text('$option ações'),
-                          selected: _weeklyGoal == option,
-                          showCheckmark: false,
-                          onSelected: (_) {
-                            setState(() => _weeklyGoal = option);
-                            _saveWeeklyGoal(option);
-                          },
-                          backgroundColor: AppColors.brandBackground,
-                          selectedColor: AppColors.brandSecondaryContainer,
-                          side: BorderSide(
-                            color:
-                                _weeklyGoal == option
-                                    ? AppColors.brandSecondaryContainer
-                                    : AppColors.brandBorder,
-                          ),
-                          labelStyle: AppTextStyles.labelMd.copyWith(
-                            color:
-                                _weeklyGoal == option
-                                    ? AppColors.brandDarkAccent
-                                    : AppColors.brandTextSecondary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                      _switch(
+                        key: 'notificationsEnabled',
+                        icon: Icons.notifications_active_outlined,
+                        title: 'Notificações no aplicativo',
+                        subtitle:
+                            'Avisos de conquistas, desafios, comunidade e '
+                            'recompensas.',
+                      ),
+                      _divider,
+                      _comingSoonSwitch(),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
+                  _section(
+                    title: 'Privacidade',
+                    children: [
+                      _switch(
+                        key: 'privacyProfile',
+                        icon: Icons.visibility_outlined,
+                        title: 'Perfil visível para a comunidade',
+                        subtitle:
+                            'Seu nome e suas publicações aparecem para os '
+                            'vizinhos.',
+                      ),
+                      _divider,
+                      _switch(
+                        key: 'privacyLocation',
+                        icon: Icons.map_outlined,
+                        title: 'Aparecer no mapa da comunidade',
+                        subtitle: 'Só a região do bairro, nunca o endereço',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _section(
+                    title: 'Meta semanal',
+                    subtitle: 'Aparece na tela inicial, em Sua semana.',
+                    children: [const SizedBox(height: 4), _goalChips()],
+                  ),
+                  const SizedBox(height: 16),
+                  _section(title: 'Endereço', children: [_addressInfo()]),
+                  const SizedBox(height: 16),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(
-                        Icons.flag_outlined,
-                        size: 16,
-                        color: AppColors.brandPrimary,
+                        Icons.cloud_done_outlined,
+                        size: 18,
+                        color: AppColors.brandTextSecondary,
                       ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Meta atual: $_weeklyGoal ações por semana',
+                          'As alterações são salvas na sua conta.',
                           style: AppTextStyles.bodySm.copyWith(
                             color: AppColors.brandTextSecondary,
                           ),
@@ -218,227 +149,198 @@ class _PreferenciasPageState extends State<PreferenciasPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              _sectionCard(
-                title: 'Comunidade',
-                subtitle: 'Defina seu bairro e como participar do feed.',
-                children: [
-                  _neighborhoodTile(),
-                  const Divider(height: 1, color: AppColors.brandBorder),
-                  _switchTile(
-                    icon: Icons.visibility_outlined,
-                    title: 'Compartilhar progresso',
-                    subtitle: 'Suas ações podem aparecer no feed dos vizinhos.',
-                    value: _shareProgress,
-                    onChanged: (value) {
-                      setState(() => _shareProgress = value);
-                      _savePreference('privacyProfile', value);
-                    },
-                  ),
-                  const Divider(height: 1, color: AppColors.brandBorder),
-                  _switchTile(
-                    icon: Icons.leaderboard_outlined,
-                    title: 'Aparecer no ranking',
-                    subtitle: 'Mostrar seu nome no ranking semanal do bairro.',
-                    value: _appearInRanking,
-                    onChanged: (value) {
-                      setState(() => _appearInRanking = value);
-                      _savePreference('privacyLocation', value);
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSecondaryContainer.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.info_outline,
-                      size: 16,
-                      color: AppColors.brandPrimary,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Notificações, privacidade, meta semanal e bairro são salvos na sua conta.',
-                        style: AppTextStyles.labelSm.copyWith(
-                          color: AppColors.brandTextSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
         ),
       ),
     );
   }
 
-  Widget _sectionCard({
+  static const Widget _divider = Divider(
+    height: 1,
+    color: AppColors.brandBorder,
+  );
+
+  Widget _section({
     required String title,
-    required String subtitle,
+    String? subtitle,
     required List<Widget> children,
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
       decoration: BoxDecoration(
         color: AppColors.brandSurface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.brandBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: AppTextStyles.headlineSm.copyWith(
-              color: AppColors.brandTextPrimary,
-              fontWeight: FontWeight.w700,
+          Semantics(
+            header: true,
+            child: Text(
+              title,
+              style: AppTextStyles.headlineSm.copyWith(
+                color: AppColors.brandTextPrimary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            style: AppTextStyles.bodySm.copyWith(
-              color: AppColors.brandTextSecondary,
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: AppTextStyles.bodySm.copyWith(
+                color: AppColors.brandTextSecondary,
+              ),
+            ),
+          ],
+          const SizedBox(height: 4),
+          Material(
+            type: MaterialType.transparency,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
             ),
           ),
-          const SizedBox(height: 8),
-          ...children,
         ],
       ),
     );
   }
 
-  Widget _switchTile({
+  Widget _switch({
+    required String key,
     required IconData icon,
     required String title,
     required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
   }) {
-    return Material(
-      type: MaterialType.transparency,
-      child: SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        visualDensity: VisualDensity.compact,
-        secondary: Icon(icon, size: 20, color: AppColors.brandPrimary),
-        title: Text(
-          title,
-          style: AppTextStyles.bodyMd.copyWith(
-            color: AppColors.brandTextPrimary,
-            fontWeight: FontWeight.w600,
-          ),
+    final saving = _saving.contains(key);
+    return SwitchListTile(
+      key: ValueKey('preferencia-$key'),
+      contentPadding: EdgeInsets.zero,
+      secondary: Icon(icon, color: AppColors.brandDarkAccent),
+      title: Text(
+        title,
+        style: AppTextStyles.bodyMd.copyWith(
+          color: AppColors.brandTextPrimary,
+          fontWeight: FontWeight.w600,
         ),
-        subtitle: Text(
-          subtitle,
-          style: AppTextStyles.labelSm.copyWith(
-            color: AppColors.brandTextSecondary,
-          ),
-        ),
-        value: value,
-        onChanged: onChanged,
       ),
-    );
-  }
-
-  Widget _neighborhoodTile() {
-    return Material(
-      type: MaterialType.transparency,
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        visualDensity: VisualDensity.compact,
-        leading: const Icon(
-          Icons.location_on_outlined,
-          size: 20,
-          color: AppColors.brandPrimary,
-        ),
-        title: Text(
-          'Meu bairro',
-          style: AppTextStyles.bodyMd.copyWith(
-            color: AppColors.brandTextPrimary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: Text(
-          _neighborhood,
-          style: AppTextStyles.labelSm.copyWith(
-            color: AppColors.brandTextSecondary,
-          ),
-        ),
-        trailing: const Icon(
-          Icons.chevron_right,
+      subtitle: Text(
+        saving ? 'Salvando…' : subtitle,
+        style: AppTextStyles.bodySm.copyWith(
           color: AppColors.brandTextSecondary,
         ),
-        onTap: _selectNeighborhood,
+      ),
+      value: _flag(key),
+      onChanged: saving ? null : (value) => _save(key, value),
+    );
+  }
+
+  Widget _comingSoonSwitch() {
+    return SwitchListTile(
+      contentPadding: EdgeInsets.zero,
+      secondary: const Icon(Icons.alarm, color: AppColors.brandTextSecondary),
+      title: Text(
+        'Lembretes diários',
+        style: AppTextStyles.bodyMd.copyWith(
+          color: AppColors.brandTextSecondary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        'Em breve',
+        style: AppTextStyles.bodySm.copyWith(
+          color: AppColors.brandTextSecondary,
+        ),
+      ),
+      value: false,
+      onChanged: null,
+    );
+  }
+
+  Widget _goalChips() {
+    final current = _weeklyGoal;
+    final saving = _saving.contains(_weeklyGoalKey);
+    final options = {..._goalOptions, current}.toList()..sort();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Wrap(
+        spacing: 8,
+        children: [
+          for (final option in options)
+            ChoiceChip(
+              key: ValueKey('meta-$option'),
+              label: Text('$option ${option == 1 ? 'ação' : 'ações'}'),
+              selected: option == current,
+              showCheckmark: false,
+              materialTapTargetSize: MaterialTapTargetSize.padded,
+              onSelected:
+                  saving
+                      ? null
+                      : (_) {
+                        if (option != current) _save(_weeklyGoalKey, option);
+                      },
+              backgroundColor: AppColors.brandBackground,
+              selectedColor: AppColors.brandSecondaryContainer,
+              disabledColor:
+                  option == current
+                      ? AppColors.brandSecondaryContainer
+                      : AppColors.brandBackground,
+              side: BorderSide(
+                color:
+                    option == current
+                        ? AppColors.brandDarkAccent
+                        : AppColors.brandBorder,
+              ),
+              labelStyle: AppTextStyles.labelMd.copyWith(
+                color:
+                    option == current
+                        ? AppColors.brandDarkAccent
+                        : AppColors.brandTextSecondary,
+                fontWeight:
+                    option == current ? FontWeight.w700 : FontWeight.w600,
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  void _selectNeighborhood() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.brandSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'Escolha seu bairro',
-                  style: AppTextStyles.headlineSm.copyWith(
-                    color: AppColors.brandTextPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              for (final neighborhood in _neighborhoods)
-                ListTile(
-                  leading: Icon(
-                    neighborhood == _neighborhood
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_off,
-                    color: AppColors.brandPrimary,
-                  ),
-                  title: Text(
-                    neighborhood,
-                    style: AppTextStyles.bodyMd.copyWith(
-                      color: AppColors.brandTextPrimary,
-                    ),
-                  ),
-                  onTap: () {
-                    setState(() => _neighborhood = neighborhood);
-                    _saveNeighborhood(neighborhood);
-                    Navigator.of(sheetContext).pop();
-                  },
-                ),
-              const SizedBox(height: 8),
-            ],
+  Widget _addressInfo() {
+    final line = _auth.addressLine;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.location_on_outlined,
+            color: AppColors.brandDarkAccent,
           ),
-        );
-      },
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  line.isEmpty ? 'Não informado' : line,
+                  style: AppTextStyles.bodyMd.copyWith(
+                    color: AppColors.brandTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Para mudar o endereço, use Editar dados no Perfil.',
+                  style: AppTextStyles.bodySm.copyWith(
+                    color: AppColors.brandTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
