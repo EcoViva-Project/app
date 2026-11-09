@@ -22,6 +22,7 @@ import '../features/conquistas/presentation/pages/conquistas_page.dart';
 import '../features/preferencias/presentation/pages/preferencias_page.dart';
 import '../features/notificacoes/presentation/pages/notificacoes_page.dart';
 import '../features/recompensas/presentation/pages/recompensas_page.dart';
+import '../features/mapa/presentation/pages/mapa_page.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.navigationShell});
@@ -304,6 +305,11 @@ class AppRouter {
         path: '/recompensas',
         name: 'recompensas',
         builder: (context, state) => const RecompensasPage(),
+      ),
+      GoRoute(
+        path: '/mapa',
+        name: 'mapa',
+        builder: (context, state) => const MapaPage(),
       ),
     ],
   );

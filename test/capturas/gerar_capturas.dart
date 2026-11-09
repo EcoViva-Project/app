@@ -116,6 +116,16 @@ void main() {
     await _capture(tester, '22-historico');
     await _open(tester, '/preferencias');
     await _capture(tester, '23-preferencias');
+    // O mapa lê o arquivo do mapa-base: precisa de tempo real para carregar.
+    AppRouter.router.go('/mapa');
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 800)),
+    );
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    await _capture(tester, '24-mapa');
 
     // Depois de registrar: conquista nova, teto atingido e confirmação.
     await ActionHistoryService.instance.submitAction(actionId: 5, quantity: 1);

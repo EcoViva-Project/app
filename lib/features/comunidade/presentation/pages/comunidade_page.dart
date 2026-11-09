@@ -3,14 +3,19 @@ import 'package:flutter/services.dart';
 
 import '../../../../core/services/auth_service.dart';
 import '../../../../core/services/community_service.dart';
+import '../../../../core/services/neighborhood_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_page_header.dart';
 import '../../../../core/widgets/state_views.dart';
+import '../widgets/collection_points_section.dart';
+import '../widgets/collective_goal_card.dart';
 import '../widgets/comments_sheet.dart';
-import '../widgets/local_guide_section.dart';
+import '../widgets/community_numbers.dart';
+import '../widgets/community_section.dart';
 import '../widgets/new_post_dialog.dart';
 import '../widgets/post_card.dart';
+import '../widgets/weekly_ranking_card.dart';
 
 class ComunidadePage extends StatefulWidget {
   const ComunidadePage({super.key});
@@ -21,15 +26,18 @@ class ComunidadePage extends StatefulWidget {
 
 class _ComunidadePageState extends State<ComunidadePage> {
   final CommunityService _service = CommunityService.instance;
+  final NeighborhoodService _neighborhood = NeighborhoodService.instance;
   final Listenable _listenable = Listenable.merge([
     CommunityService.instance,
+    NeighborhoodService.instance,
     AuthService.instance,
   ]);
   final Set<String> _deleting = {};
 
-  /// Verdadeiro entre a criação da tela e o início da primeira carga, para a
-  /// lista abrir em "carregando" e não piscar um erro antigo.
+  /// Verdadeiros entre a criação da tela e o início da primeira carga, para
+  /// os blocos abrirem em "carregando" e não piscarem um erro antigo.
   bool _starting = false;
+  bool _startingNeighborhood = false;
   bool _composing = false;
   bool _commentsOpen = false;
 
@@ -40,6 +48,13 @@ class _ComunidadePageState extends State<ComunidadePage> {
       _starting = true;
       // Fora do `build`: o serviço avisa os ouvintes assim que começa.
       Future.microtask(_load);
+    }
+    if (_neighborhood.stats == null && !_neighborhood.loading) {
+      _startingNeighborhood = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _loadNeighborhood().catchError((Object _) {});
+      });
     }
   }
 
@@ -54,20 +69,36 @@ class _ComunidadePageState extends State<ComunidadePage> {
     }
   }
 
-  Future<void> _refresh() async {
-    if (_service.loading) return;
+  /// Números, meta, ranking e pontos de coleta. O erro aparece no bloco.
+  Future<void> _loadNeighborhood() async {
+    _startingNeighborhood = false;
+    if (_neighborhood.loading) return;
     try {
-      await _service.load();
-    } catch (error) {
-      if (!mounted) return;
-      // Sem publicações carregadas, o erro já aparece no lugar da lista.
-      if (!_service.isLoaded) return;
-      showErrorSnackBar(
-        context,
-        error,
-        fallback: 'Não foi possível atualizar as publicações.',
-      );
+      await _neighborhood.load();
+    } catch (_) {
+      // O bloco mostra o erro e o botão "Tentar de novo".
     }
+  }
+
+  /// Puxar para atualizar: recarrega os dois serviços, cada um por si.
+  Future<void> _refresh() async {
+    Future<Object?> attempt(Future<void> Function() load) =>
+        load().then<Object?>((_) => null).catchError((Object error) => error);
+
+    final errors = await Future.wait([
+      if (!_neighborhood.loading) attempt(_neighborhood.load),
+      if (!_service.loading) attempt(_service.load),
+    ]);
+    if (!mounted) return;
+    // Sem dados na tela, o erro já aparece no lugar do bloco.
+    final error = errors.whereType<Object>().firstOrNull;
+    if (error == null) return;
+    if (_neighborhood.stats == null && !_service.isLoaded) return;
+    showErrorSnackBar(
+      context,
+      error,
+      fallback: 'Não foi possível atualizar a comunidade.',
+    );
   }
 
   void _showMessage(String message) {
@@ -202,26 +233,18 @@ class _ComunidadePageState extends State<ComunidadePage> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
-                  _NeighborhoodCard(
-                    neighborhood: AuthService.instance.neighborhood.trim(),
+                  _RegionLine(region: AuthService.instance.regionLabel),
+                  const SizedBox(height: 16),
+                  ..._buildNeighborhood(),
+                  const CommunitySectionTitle(
+                    title: 'Publicações da comunidade',
                   ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Publicações da comunidade',
-                    style: AppTextStyles.headlineSm.copyWith(
-                      color: AppColors.brandTextPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
                   _Composer(
                     initials: AuthService.instance.userInitials,
                     onTap: _openNewPost,
                   ),
                   const SizedBox(height: 10),
                   ..._buildFeed(),
-                  const SizedBox(height: 14),
-                  const LocalGuideSection(),
                 ],
               );
             },
@@ -229,6 +252,45 @@ class _ComunidadePageState extends State<ComunidadePage> {
         ),
       ),
     );
+  }
+
+  /// Números, meta, ranking e pontos de coleta: tudo do `NeighborhoodService`.
+  /// Se a carga falhar, só estes blocos mostram o erro; o feed continua.
+  List<Widget> _buildNeighborhood() {
+    const gap = SizedBox(height: 24);
+    final stats = _neighborhood.stats;
+    if (stats == null) {
+      return [
+        const CommunitySectionTitle(title: 'Números da comunidade'),
+        if (_neighborhood.loading || _startingNeighborhood)
+          const LoadingView(message: 'Carregando os números da comunidade…')
+        else
+          CommunityCard(
+            child: LoadErrorView(
+              message:
+                  _neighborhood.error ??
+                  'Não foi possível carregar os números da comunidade.',
+              onRetry: _loadNeighborhood,
+              padding: 8,
+            ),
+          ),
+        gap,
+      ];
+    }
+
+    final goal = stats.goal;
+    return [
+      const CommunitySectionTitle(title: 'Números da comunidade'),
+      CommunityNumbers(stats: stats),
+      gap,
+      if (goal != null) ...[CollectiveGoalCard(goal: goal), gap],
+      const CommunitySectionTitle(title: 'Ranking da semana'),
+      WeeklyRankingCard(stats: stats),
+      gap,
+      const CommunitySectionTitle(title: 'Pontos de coleta perto de você'),
+      CollectionPointsSection(points: _neighborhood.collectionPoints),
+      gap,
+    ];
   }
 
   List<Widget> _buildFeed() {
@@ -276,68 +338,35 @@ class _ComunidadePageState extends State<ComunidadePage> {
   }
 }
 
-/// Bairro de quem está usando o app, vindo do cadastro.
-class _NeighborhoodCard extends StatelessWidget {
-  const _NeighborhoodCard({required this.neighborhood});
+/// Lugar de quem está usando o app ("Boa Vista, São José do Rio Preto").
+class _RegionLine extends StatelessWidget {
+  const _RegionLine({required this.region});
 
-  final String neighborhood;
+  final String region;
 
   @override
   Widget build(BuildContext context) {
-    final hasNeighborhood = neighborhood.isNotEmpty;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.brandBorder),
-      ),
+    return Semantics(
+      label: region.isEmpty ? 'Sua vizinhança' : 'Sua região: $region',
+      excludeSemantics: true,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ExcludeSemantics(
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: const BoxDecoration(
-                color: AppColors.brandSecondaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.location_on,
-                color: AppColors.brandDarkAccent,
-              ),
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.location_on,
+              size: 18,
+              color: AppColors.brandDarkAccent,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 6),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (hasNeighborhood)
-                  Text(
-                    'Seu bairro',
-                    style: AppTextStyles.labelMd.copyWith(
-                      color: AppColors.brandTextSecondary,
-                    ),
-                  ),
-                Text(
-                  hasNeighborhood ? neighborhood : 'Sua vizinhança',
-                  style: AppTextStyles.bodyLg.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.brandTextPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Pequenos gestos somados transformam a nossa vizinhança.',
-                  style: AppTextStyles.bodyMd.copyWith(
-                    color: AppColors.brandTextSecondary,
-                  ),
-                ),
-              ],
+            child: Text(
+              region.isEmpty ? 'Sua vizinhança' : region,
+              style: AppTextStyles.labelLg.copyWith(
+                color: AppColors.brandTextPrimary,
+              ),
             ),
           ),
         ],
