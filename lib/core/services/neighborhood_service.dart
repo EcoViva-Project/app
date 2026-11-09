@@ -165,6 +165,7 @@ class CollectionPoint {
     this.distanceMeters,
     this.confidence,
     this.sourceUrl,
+    this.sourceDate,
     this.notes,
   });
 
@@ -188,9 +189,16 @@ class CollectionPoint {
   /// `alta`, `média` ou `baixa`, conforme o levantamento.
   final String? confidence;
   final String? sourceUrl;
+
+  /// Data em que a fonte foi consultada (`AAAA-MM-DD`).
+  final String? sourceDate;
   final String? notes;
 
   bool get hasPosition => lat != null && lon != null;
+
+  /// Ponto dentro de escola ou creche: atende sobretudo a comunidade escolar.
+  bool get isSchool =>
+      (notes ?? '').toLowerCase().contains('instituição de ensino');
 
   /// "A 850 m" ou "A 2,4 km"; `null` sem coordenada.
   String? get distanceLabel {
@@ -268,6 +276,7 @@ class CollectionPoint {
     distanceMeters: (json['distanceMeters'] as num?)?.toInt(),
     confidence: json['confidence'] as String?,
     sourceUrl: json['sourceUrl'] as String?,
+    sourceDate: json['sourceDate'] as String?,
     notes: json['notes'] as String?,
   );
 }
@@ -392,6 +401,28 @@ class NeighborhoodService extends ChangeNotifier {
 
   /// Pontos de coleta, do mais perto para o mais longe.
   List<CollectionPoint> get collectionPoints => _points;
+
+  /// Aviso de origem dos pontos de coleta, para mostrar junto das listas e do
+  /// mapa: "Pontos de coleta: fontes públicas consultadas em 09/11/2026.
+  /// Confirme no local antes de levar o material."
+  String? get pointsSourceLabel => sourceLabelFor(_points);
+
+  /// O mesmo aviso para uma lista qualquer de pontos (a do mapa, por exemplo).
+  static String? sourceLabelFor(List<CollectionPoint> points) {
+    String? latest;
+    for (final point in points) {
+      final date = point.sourceDate;
+      if (date != null && (latest == null || date.compareTo(latest) > 0)) {
+        latest = date;
+      }
+    }
+    if (points.isEmpty) return null;
+    final parts = (latest ?? '').split('-');
+    final when =
+        parts.length == 3 ? ' consultadas em ${parts[2]}/${parts[1]}/${parts[0]}' : '';
+    return 'Pontos de coleta: fontes públicas$when. '
+        'Confirme no local antes de levar o material.';
+  }
 
   DailyTip? get tip => _tip;
 

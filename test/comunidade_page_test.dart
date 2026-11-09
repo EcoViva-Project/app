@@ -161,10 +161,15 @@ void main() {
       findsOneWidget,
     );
 
-    // Folha de detalhes.
-    await tester.tap(
-      find.descendant(of: cards, matching: find.text(shown.first.name)),
+    // Folha de detalhes. O primeiro cartão pode ter saído da área visível
+    // quando a tela rolou até os botões: volta até ele antes de tocar.
+    final firstCard = find.descendant(
+      of: cards,
+      matching: find.text(shown.first.name),
     );
+    await tester.ensureVisible(firstCard);
+    await _settle(tester);
+    await tester.tap(firstCard);
     await _settle(tester);
     expect(find.byTooltip('Fechar'), findsOneWidget);
     expect(

@@ -70,6 +70,15 @@ class CollectionPointsSection extends StatelessWidget {
             color: AppColors.brandTextSecondary,
           ),
         ),
+        if (NeighborhoodService.sourceLabelFor(points) case final source?) ...[
+          const SizedBox(height: 4),
+          Text(
+            source,
+            style: AppTextStyles.bodySm.copyWith(
+              color: AppColors.brandTextSecondary,
+            ),
+          ),
+        ],
       ],
     );
   }

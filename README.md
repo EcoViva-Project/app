@@ -1,212 +1,173 @@
-# ♻️ EcoViva — App
+# EcoViva — App
 
-![Flutter](https://img.shields.io/badge/Flutter-3.29+-02569B?logo=flutter&logoColor=white)
-![Dart](https://img.shields.io/badge/Dart-3.7+-0175C2?logo=dart&logoColor=white)
-![Material 3](https://img.shields.io/badge/Material-3-757575?logo=materialdesign&logoColor=white)
-![go_router](https://img.shields.io/badge/go__router-16-4A90E2)
-![License](https://img.shields.io/badge/license-academic-lightgrey)
+Aplicativo Flutter do EcoViva, um clube de hábitos sustentáveis para o bairro. A pessoa registra ações ecológicas (fechar a torneira, separar resíduos, ir de bicicleta, participar de um mutirão), ganha pontos, sobe de nível, cumpre desafios, vê o que acontece na comunidade e no mapa do bairro e troca os pontos por cupons de parceiros. O projeto é acadêmico e a cidade usada nos dados é São José do Rio Preto (SP).
 
-Aplicativo **Flutter** (Android, iOS e web) do **EcoViva**: um clube de hábitos
-sustentáveis para o bairro. A pessoa registra ações ecológicas, acumula
-eco-pontos, sobe de nível, desbloqueia selos, participa de desafios coletivos,
-compartilha dicas na comunidade e troca os pontos por recompensas de empresas
-parceiras.
+O app roda em dois modos, escolhidos na hora de gerar o aplicativo. No **modo local**, o padrão, ele funciona sozinho no aparelho, sem internet. No **modo online**, ele fala com a API do `eco-backend` (repositório `EcoViva-Project/backend`).
 
-- **API (Node/Express):** https://github.com/EcoViva-Project/backend
-- **App:** https://github.com/EcoViva-Project/app
+- App: https://github.com/EcoViva-Project/app
+- API: https://github.com/EcoViva-Project/backend
 
-> O app precisa da API rodando para autenticar e carregar os dados.
+## Os dois modos
 
----
+O modo é definido por `--dart-define` na compilação (`lib/core/services/api_client.dart`). As telas e os serviços são os mesmos nos dois; só muda o transporte das requisições.
 
-## 📱 Telas
-
-O app tem **17 rotas** (5 abas fixas + telas empilhadas + autenticação),
-organizadas com `go_router` e `StatefulShellRoute`.
-
-### Autenticação
-| Rota | Tela | O que faz |
+| | Local (padrão) | Online |
 | --- | --- | --- |
-| `/login` | Login | E-mail e senha; redireciona para `/inicio` |
-| `/registro` | Registro | Nome, e-mail, senha e bairro |
-| `/esqueci-senha` | Esqueci a senha | Solicita código de 6 dígitos e redefine a senha |
+| Variável | `ECO_MODE=local` (ou nenhuma) | `ECO_MODE=online` |
+| Quem responde | Uma API escrita em Dart dentro do app (`lib/core/local/`) | O `eco-backend`, pela rede |
+| Rede | Não usa | Necessária |
+| Endereço da API | não se aplica | `ECO_API_URL`, padrão `http://127.0.0.1:3100/api` |
+| Quando usar | Demonstrações, feiras, uso sem internet | Quando o servidor estiver disponível e atualizado |
 
-### Abas principais
-| Rota | Tela | O que faz |
-| --- | --- | --- |
-| `/inicio` | Início | Saudação, eco-pontos, nível, meta de hábitos do mês, atividade da semana, desafio coletivo em destaque, atalho para recompensas, categorias e botão de registrar ação |
-| `/acoes` | Ações | Catálogo local com 6 ações, busca, filtros por categoria, ordenação (relevância/pontos/A-Z), cards com pontos/litros, botão **Registrar** e envio de **sugestão** de ação |
-| `/desafios` | Desafios | Desafios semanais e coletivos, progresso, participantes, dias restantes e ação de entrar |
-| `/comunidade` | Comunidade | Feed de publicações (criar, curtir, comentar, excluir a própria), ações coletivas do bairro e campanhas |
-| `/perfil` | Perfil | Dados da conta, estatísticas, metas, bairro, privacidade e atalhos |
+Para gerar:
 
-### Telas empilhadas
-| Rota | Tela | O que faz |
-| --- | --- | --- |
-| `/registro-acao` | Registro de ação | Quantidade (1–50) e observações antes de confirmar |
-| `/confirmacao-registro` | Confirmação | Pontos ganhos, litros economizados e novos selos |
-| `/meu-historico` | Meu histórico | Lista de ações registradas |
-| `/detalhes-desafio` | Detalhes do desafio | Descrição, progresso, passos e recompensa |
-| `/progresso` | Progresso | Eco-pontos, ações, dias ativos, atividade da semana, ações por categoria e desafios em andamento |
-| `/conquistas` | Conquistas | 10 selos com filtros **Todas / Desbloqueadas / Em progresso** |
-| `/preferencias` | Preferências | Notificações push, lembretes, resumo semanal, metas, ranking e compartilhamento |
-| `/notificacoes` | Notificações | Lista, marcar como lida, marcar todas, excluir e navegar para a tela relacionada |
-| `/recompensas` | Recompensas | Saldo de pontos, busca, filtros por categoria, ordenação, detalhe e resgate de produtos/serviços/descontos/itens de jogos com código e histórico |
+```bash
+# Modo local
+flutter run
+flutter build apk --release
 
----
-
-## 🧰 Tecnologias
-
-| Pacote | Versão | Uso |
-| --- | --- | --- |
-| **Flutter** | Dart `^3.7.0` | UI multiplataforma |
-| **go_router** | `^16.2.1` | Rotas, shell com abas e redirect de autenticação |
-| **http** | `^1.6.0` | Cliente HTTP da API |
-| **shared_preferences** | `^2.5.6` | Persistência do token e do usuário |
-| **cupertino_icons** | `^1.0.8` | Ícones |
-| **flutter_lints** | `^5.0.0` | Regras de lint (dev) |
-| **flutter_test** | SDK | Testes de widget/unidade (dev) |
-
-**Fonte:** Plus Jakarta Sans (400/500/600/700), embarcada em `assets/fonts/`.
-**Tema:** Material 3, paleta verde-sálvia/creme definida em
-`lib/core/theme/app_colors.dart` (baseada no design system em
-`design-reference/design-system/DESIGN.md`).
-
-> `provider` está declarado no `pubspec.yaml`, mas o código atual usa
-> `ChangeNotifier` + `AnimatedBuilder` diretamente.
-
----
-
-## 🏗️ Arquitetura
-
-- **Feature-first:** cada domínio em `lib/features/<feature>/presentation/pages`.
-- **Serviços singleton** (`ChangeNotifier`) em `lib/core/services`: auth,
-  sessão, progresso, conquistas, histórico, desafios, comunidade,
-  notificações e recompensas.
-- **`ApiClient`** único, com `baseUrl` vinda de `ECO_API_URL` e token Bearer
-  injetado em todas as requisições.
-- **`AuthService`** hidrata os demais serviços após login e limpa tudo no logout.
-- **Navegação:** `GoRouter` com `redirect` — rotas protegidas caem em `/login`
-  quando não há token.
-
-```txt
-eco-app/
-├── assets/
-│   ├── fonts/PlusJakartaSans/
-│   └── images/                 # logo e ícone da folha
-├── lib/
-│   ├── app/app.dart            # rotas, shell de abas e redirect
-│   ├── core/
-│   │   ├── services/           # api_client, auth, sessão, progresso, etc.
-│   │   ├── theme/              # cores, tipografia e ThemeData
-│   │   └── widgets/            # header de página, círculo de status
-│   ├── features/               # 15 features (auth, inicio, acoes, recompensas, ...)
-│   └── main.dart
-├── test/                       # 4 arquivos de teste
-├── web/                        # suporte web (manifest + ícones)
-├── dart-define.example.json
-├── pubspec.yaml
-└── README.md
+# Modo online
+flutter run --dart-define=ECO_MODE=online --dart-define=ECO_API_URL=http://<endereço>:3100/api
+flutter build apk --release --dart-define=ECO_MODE=online --dart-define=ECO_API_URL=http://<endereço>:3100/api
 ```
 
----
+O emulador Android enxerga o computador em `10.0.2.2`; um celular físico precisa do IP do computador na mesma rede.
 
-## 🚀 Como rodar
+### O que acontece no modo local
 
-### Pré-requisitos
-- **Flutter 3.29+** (Dart `^3.7`)
-- API do EcoViva rodando (`https://github.com/EcoViva-Project/backend`)
+- Os dados ficam no aparelho, em SQLite (`ecoviva.db`, via `sqflite`). Quando o SQLite não está disponível, como no navegador, o app grava em `shared_preferences`. Se o SQLite falhar em um aparelho, o app troca sozinho para essa reserva.
+- Os dados persistem ao fechar e abrir o app.
+- Na primeira abertura o app cria a conta de demonstração, com cerca de nove semanas de histórico (63 dias) gerado pelas próprias regras. O histórico é relativo ao dia da primeira abertura.
+- A tela de entrada tem um botão que entra direto com essa conta. Os dados dela estão em `lib/core/local/local_seed.dart` (`clara@eco.app`, senha `eco1234`).
+- Em Perfil, a opção **Restaurar demonstração** apaga os dados do aparelho e recria tudo. Ela só aparece no modo local.
+- Para conferir um cupom no resgate, o código dos parceiros na demonstração é `1234`; a tela do cupom informa isso no modo local.
+- Na recuperação de senha não há envio de e-mail. O código de 6 dígitos aparece na própria tela.
 
-### Passos
+## Telas e rotas
+
+As rotas estão em `lib/app/app.dart`. Sem sessão, qualquer rota protegida leva a `/login`; com sessão, as rotas de autenticação levam a `/inicio`. Um endereço desconhecido mostra uma tela "Não encontramos esta tela".
+
+| Rota | Tela | O que faz |
+| --- | --- | --- |
+| `/abrindo` | Abertura | Aparece enquanto a sessão salva é conferida |
+| `/login` | Login | Entrar com e-mail e senha; no modo local, botão para entrar com a conta de demonstração |
+| `/registro` | Cadastro | Dados da conta e endereço, com sugestão de bairro e validação do CEP |
+| `/esqueci-senha` | Esqueci a senha | Pede um código de 6 dígitos e define a nova senha |
+| `/inicio` | Início (aba) | Saldo, nível, barra do teto semanal, meta da semana, desafios, atalhos e bloco "Sua comunidade" |
+| `/acoes` | Ações (aba) | Catálogo de ações com busca, filtro por categoria (aceita `?categoria=`) e ordenação |
+| `/desafios` | Desafios (aba) | Desafios disponíveis e em andamento |
+| `/comunidade` | Comunidade (aba) | Números do bairro, meta coletiva, ranking da semana, pontos de coleta e feed de publicações |
+| `/perfil` | Perfil (aba) | Conta, edição de dados, atalhos, Restaurar demonstração (modo local) e sair |
+| `/registro-acao/:id` | Registro de ação | Confirma a quantidade e registra a ação |
+| `/confirmacao-registro` | Confirmação | Resultado do registro: pontos, conquistas e aviso de teto |
+| `/meu-historico` | Histórico | Ações registradas |
+| `/detalhes-desafio/:id` | Detalhes do desafio | Descrição, progresso e prazo |
+| `/progresso` | Progresso | Pontos, ações e atividade da semana |
+| `/conquistas` | Conquistas | As 10 conquistas, com progresso e data de desbloqueio |
+| `/preferencias` | Preferências | Notificações no app, privacidade (perfil visível, aparecer no mapa), meta semanal e endereço; "Lembretes diários" aparece desativado, marcado "Em breve" |
+| `/notificacoes` | Notificações | Lista, marcar como lida e excluir |
+| `/recompensas` | Recompensas | Catálogo de cupons, resgate e "Meus cupons" (disponíveis, usados e vencidos) |
+| `/mapa` | Mapa da comunidade | Pontos de coleta e vizinhos no mapa, com filtros e opção de ver como lista; aberto a partir de Comunidade |
+
+As cinco abas (Início, Ações, Desafios, Comunidade, Perfil) formam uma barra inferior com `StatefulShellRoute`. As rotas com `:id` recebem o identificador pelo endereço, então funcionam ao recarregar a página na web.
+
+## Regras implementadas no modo local
+
+O raciocínio dos números está em `ECONOMIA-DE-PONTOS.md`, e o plano para o uso sem internet em `OFFLINE-NA-FEIRA.md`; o estado do trabalho está em `PROGRESSO.md`. Esses três arquivos ficam na pasta acima dos repositórios e não fazem parte deste. Os valores abaixo vêm do código: `lib/core/local/economy.dart` (teto, preço, níveis), `local_seed.dart` (ações, desafios, cupons) e `local_api.dart` (as regras em si).
+
+**Pontos e limites por ação.** O registro é autodeclarado, por isso cada ação tem um limite.
+
+| Ação | Pontos | Limite |
+| --- | --- | --- |
+| Fechar a torneira ao escovar os dentes | 5 | 2 por dia |
+| Apagar luzes em cômodos vazios | 5 | 1 por dia |
+| Separar resíduos secos e orgânicos | 15 | 1 por dia |
+| Compostagem de resíduos orgânicos | 25 | 1 por dia |
+| Deslocamento a pé ou de bicicleta | 30 | 2 por dia |
+| Mutirão de limpeza de praça pública | 100 | 1 por semana |
+
+**Teto semanal.** São 400 pontos de ações por semana. Passando do teto, a ação continua registrada (histórico, desafios, conquistas), mas sem pontos; se ela passa por pouco, entra a parte que cabe. A semana vai de segunda a domingo e zera na segunda, 00:00 no horário de Brasília. Bônus de desafio e de conquista não entram no teto.
+
+**Níveis.** Seguem os pontos ganhos e não caem quando a pessoa gasta pontos: Semente (0), Broto (300), Muda (1.000), Árvore (2.500) e Floresta (6.000).
+
+**Desafios.** São quatro: "Semana sem desperdício de água", "Transporte ativo no bairro", "Mutirão da praça central" e "Desafio da compostagem". Eles avançam sozinhos quando a pessoa registra uma ação da categoria; nos desafios contados em dias, vale no máximo uma etapa por dia. Cada desafio tem prazo próprio (7 ou 14 dias) contado a partir da entrada, e um desafio vencido pode ser recomeçado. Concluir credita o bônus uma vez.
+
+**Conquistas.** São 10, com pontos de bônus creditados uma única vez e data de desbloqueio gravada.
+
+**Cupons.** O catálogo de demonstração tem 12 cupons de 6 parceiros. O preço segue o valor do benefício, a 50 pontos por R$ 1, e os itens digitais têm desconto. Cada cupom tem validade, limite de resgates por pessoa em 30 dias, estoque e três estados (disponível, usado, vencido). O parceiro confere o cupom digitando o código dele.
+
+**Dados do bairro.** Os números da comunidade são calculados dos registros no banco do aparelho. A demonstração cria 18 moradores fictícios em bairros reais de Rio Preto, com duas semanas de ações geradas pelas mesmas regras. Deles saem os vizinhos ativos, as ações de hoje e da semana, a meta coletiva (400 ações da comunidade por semana), o ranking da semana (cinco primeiros) e a contagem de vizinhos que registraram cada ação hoje. Esses números sobem quando a pessoa registra uma ação.
+
+**Endereço e posição aproximada.** O cadastro e o perfil pedem CEP, rua, número, bairro (com sugestão entre 525 bairros do OpenStreetMap), cidade e UF. No mapa, a pessoa é posicionada na região do bairro, com um deslocamento fixo de até cerca de 350 m, nunca no endereço. Em Preferências ela pode desligar "Aparecer no mapa da comunidade".
+
+**Pontos de coleta.** São 264 pontos de Rio Preto embutidos no app. A distância é calculada a partir da região do bairro da pessoa, e a lista mostra os mais próximos primeiro.
+
+## Mapa e dados geográficos
+
+- **Origem.** O mapa-base (vias principais, rios e corpos d'água) e a lista de bairros vêm do OpenStreetMap. Os dados são licenciados sob a ODbL, e a tela do mapa mostra o crédito "© colaboradores do OpenStreetMap".
+- **Por que o app desenha o mapa.** A política da OSMF não permite usar as imagens (tiles) do OpenStreetMap para funcionar sem internet. Por isso o app não baixa imagens: ele desenha, com `flutter_map`, os dados vetoriais guardados em `assets/map/rio_preto.json`.
+- **Pontos de coleta.** Vêm de fontes públicas, listadas em cada ponto no arquivo de dados.
+
+Para regerar os arquivos, com Node.js instalado:
+
+```bash
+# Mapa-base vetorial (baixa dados da Overpass API) -> assets/map/rio_preto.json
+node tool/gerar_mapa_base.js
+
+# Bairros e pontos de coleta -> lib/core/local/data/*.dart
+node tool/gerar_dados_locais.js [pasta-de-dados]
+```
+
+O segundo script lê `bairros-rio-preto.json` e `pontos-de-coleta-rio-preto.json`. Por padrão ele procura uma pasta `dados` ao lado do repositório; essa pasta não faz parte do repositório. Os arquivos em `lib/core/local/data/` são gerados e não devem ser editados à mão.
+
+## Arquitetura
+
+- **Organização por feature:** cada tela fica em `lib/features/<feature>/presentation/pages`, com seus widgets em `presentation/widgets`. Widgets compartilhados estão em `lib/core/widgets`, o tema em `lib/core/theme` (Material 3, fonte Plus Jakarta Sans).
+- **Serviços:** `lib/core/services` tem um serviço `ChangeNotifier` por assunto (autenticação, sessão, progresso, ações, histórico, conquistas, desafios, comunidade, notificações, recompensas). As telas os observam diretamente. O `AuthService` carrega os demais após o login e limpa tudo ao sair.
+- **`ApiClient`:** cliente único, com transporte trocável. `HttpTransport` fala com o servidor (tempo limite de 12 s, mensagens de erro em português, sessão vencida tratada); `LocalTransport` entrega a requisição à `LocalApi`, que reproduz as rotas e os formatos da API do servidor.
+- **API local (`lib/core/local/`):** `local_api.dart` (rotas e regras), `local_store.dart` e `sqlite_store.dart` (armazenamento), `local_seed.dart` (dados de demonstração), `economy.dart` (constantes e calendário), `places.dart` (bairros e posição aproximada) e `data/` (dados geográficos gerados).
+- **Navegação:** `go_router`, com redirecionamento conforme a sessão.
+
+## Como rodar, testar e conferir
+
+Pré-requisito: Flutter 3.44 ou mais novo (Dart 3.13 ou mais novo), conforme o `pubspec.lock`.
 
 ```bash
 flutter pub get
-
-# apontando para a API local
-flutter run --dart-define=ECO_API_URL=http://127.0.0.1:3000/api
+flutter run                      # modo local
+flutter analyze                  # análise estática
+flutter test                     # testes automáticos
+flutter test test/capturas/gerar_capturas.dart   # imagens das telas em build/capturas/
 ```
 
-Ou use o arquivo de exemplo:
+Os testes usam a API local com banco em memória e um relógio fixo (`test/support/local_app.dart`), então passam pelas mesmas regras e serviços do app.
 
-```bash
-cp dart-define.example.json dart-define.json
-flutter run --dart-define-from-file=dart-define.json
-```
-
-### URLs por plataforma
-
-| Onde roda | `ECO_API_URL` |
+| Arquivo | O que cobre |
 | --- | --- |
-| Desktop/web/iOS Simulator | `http://127.0.0.1:3000/api` |
-| Emulador Android | `http://10.0.2.2:3000/api` |
-| Celular físico | `http://<IP-da-máquina>:3000/api` (mesma rede Wi-Fi) |
+| `test/local_api_test.dart` | Regras da API local: calendário e níveis, conta de demonstração, limites e teto semanal, desafios, cupons, cadastro e recuperação de senha, estatísticas do bairro, mapa, pontos de coleta, persistência e restauração |
+| `test/services_test.dart` | Serviços: login, registro de ação, resgate de cupom, comunidade, notificações, sessão recusada, edição de perfil, restauração |
+| `test/acoes_inicio_cadastro_test.dart` | Telas Ações, Início e Cadastro, incluindo bairro, CEP e telas pequenas |
+| `test/comunidade_page_test.dart` | Tela Comunidade: números do bairro, pontos de coleta, feed e telas pequenas |
+| `test/mapa_page_test.dart` | Tela do mapa: filtros, marcadores, lista e telas pequenas |
+| `test/perfil_notificacoes_test.dart` | Notificações, conquistas, perfil e preferências |
+| `test/recompensas_page_test.dart` | Resgate e conferência do cupom, "Meus cupons" e telas pequenas |
+| `test/responsividade_test.dart` | Rotas abertas em vários tamanhos de tela, telas de autenticação e redirecionamento sem sessão |
 
-### Conta de demonstração
+`test/support/local_app.dart` é apoio dos testes. Em `test/capturas/`, `gerar_capturas.dart` e `gerar_icones.dart` são ferramentas, não testes: o primeiro gera imagens PNG das telas com os dados da demonstração, para conferir o visual sem aparelho; o segundo regrava os ícones do Android a partir de `web/icons/Icon-512.png`.
 
-Depois de rodar `npm run seed` na API:
+## Limitações conhecidas
 
-| Campo | Valor |
-| --- | --- |
-| E-mail | `clara@eco.app` |
-| Senha | `eco1234` |
+- No modo local, os dados não são compartilhados entre aparelhos: cada celular tem as próprias publicações, e uma conta criada em um aparelho não existe nos outros.
+- Não há envio de e-mail. Na recuperação de senha do modo local, o código aparece na tela.
+- O registro de ações é autodeclarado; os limites por ação e o teto semanal reduzem o abuso, mas não o eliminam.
+- Os vizinhos, o ranking e a meta coletiva da demonstração vêm de moradores fictícios.
+- Os pontos de coleta vêm de fontes públicas e não foram confirmados no local.
+- O mapa cobre apenas a área urbana de São José do Rio Preto.
+- "Lembretes diários" ainda não existe (a opção aparece desativada).
+- Só há interface em português do Brasil e tema claro.
+- iOS não está configurado: não existe a pasta `ios/`. O app foi preparado para Android e web.
+- O `eco-backend` ainda está sendo atualizado para as mesmas regras do modo local. Até lá, o modo online pode se comportar de forma diferente (limites, teto, desafios e cupons).
 
-### Configuração
+## Créditos
 
-| Variável | Obrigatória | Default | Descrição |
-| --- | --- | --- | --- |
-| `ECO_API_URL` | não | `http://127.0.0.1:3000/api` | Base URL da API, via `--dart-define` |
-
-O app não usa arquivo `.env` (Flutter não lê `.env` nativamente).
-`dart-define.example.json` é apenas um template para
-`--dart-define-from-file`; `dart-define.json` é ignorado pelo Git.
-
----
-
-## 🧪 Testes e qualidade
-
-```bash
-flutter test      # 4 arquivos: navegação de notificações,
-                  # progresso/conquistas, recompensas e responsividade
-flutter analyze   # análise estática
-```
-
-Os testes usam `SharedPreferences.setMockInitialValues` e o helper
-`AuthService.debugSignIn()` para montar o app sem a API.
-
----
-
-## 📦 Build
-
-```bash
-# Web
-flutter build web --dart-define=ECO_API_URL=https://api.exemplo.com/api
-# saída em build/web
-
-# Android (APK)
-flutter build apk --release --dart-define=ECO_API_URL=https://api.exemplo.com/api
-```
-
----
-
-## ⚠️ Limitações e próximos passos
-
-- Depende 100% da API; não há modo offline nem cache de respostas.
-- O catálogo de ações é **embutido no app** (`acoes_page.dart`), não vem de
-  `GET /api/actions`. Os IDs (1–6) precisam coincidir com o seed do backend para
-  que o registro funcione.
-- Token salvo em `shared_preferences` (não é armazenamento seguro/criptografado).
-- Recompensas são carregadas da API; sem rede, a tela mostra a vitrine local de
-  demonstração e bloqueia o resgate.
-- Apenas tema claro e interface em PT-BR.
-- Sem CI/CD, testes de integração ou golden tests.
-- `provider` declarado sem uso; `cupertino_icons` idem.
-- Sugestões de ação são apenas um diálogo local (não persistem no backend).
-- Melhorias naturais: `flutter_secure_storage`, modo offline, i18n,
-  acessibilidade (semântica/contraste) e testes E2E.
-
----
-
-## 👨‍💻 Créditos
-
-Projeto acadêmico/comunitário **EcoViva** — app em Flutter com Material 3 e
-design system próprio (verde-sálvia, creme e dourado).
+Projeto acadêmico EcoViva. Dados de mapa e de bairros: © colaboradores do OpenStreetMap, licença ODbL.
