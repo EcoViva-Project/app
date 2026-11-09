@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'achievement_service.dart';
+import 'action_catalog_service.dart';
 import 'action_history_service.dart';
 import 'api_client.dart';
 import 'challenge_service.dart';
@@ -10,14 +11,19 @@ import 'reward_service.dart';
 import 'session_service.dart';
 import 'user_progress_service.dart';
 
-/// Autenticação, sessão e hidratação dos dados do usuário.
+/// Autenticação, sessão e carga dos dados do usuário.
 class AuthService extends ChangeNotifier {
   AuthService._();
 
   static final AuthService instance = AuthService._();
 
+  /// Conta de demonstração criada no modo local.
+  static const String demoEmail = 'clara@eco.app';
+  static const String demoPassword = 'eco1234';
+
   bool _initialized = false;
   bool _busy = false;
+  bool _signingOut = false;
 
   bool get initialized => _initialized;
 
@@ -25,33 +31,62 @@ class AuthService extends ChangeNotifier {
 
   bool get isAuthenticated => SessionService.instance.isAuthenticated;
 
+  /// O app está usando o banco do próprio aparelho, sem servidor.
+  bool get isLocalMode => ApiClient.isLocalMode;
+
   Map<String, dynamic>? get user => SessionService.instance.user;
 
-  String get userName => user?['name'] as String? ?? 'Clara Mendes';
+  String get userName => user?['name'] as String? ?? '';
 
-  String get userInitials => user?['initials'] as String? ?? 'CM';
+  String get firstName {
+    final parts = userName.trim().split(RegExp(r'\s+'));
+    return parts.isEmpty ? '' : parts.first;
+  }
 
-  String get neighborhood =>
-      user?['neighborhood'] as String? ?? 'Jardim das Flores';
+  String get userInitials {
+    final initials = user?['initials'] as String?;
+    if (initials != null && initials.isNotEmpty) return initials;
+    return userName.isEmpty ? '?' : userName[0].toUpperCase();
+  }
+
+  String get userEmail => user?['email'] as String? ?? '';
+
+  String get neighborhood => user?['neighborhood'] as String? ?? '';
+
+  int get weeklyGoal => (user?['weeklyGoal'] as num?)?.toInt() ?? 5;
+
+  int get monthlyGoal => (user?['monthlyGoal'] as num?)?.toInt() ?? 17;
 
   Map<String, dynamic> get preferences =>
       (user?['preferences'] as Map<String, dynamic>?) ?? const {};
 
+  /// Abre a sessão salva, se houver, e carrega os dados.
+  ///
+  /// A sessão só é apagada quando a API recusa o token. Falta de rede não
+  /// desloga ninguém.
   Future<void> initialize() async {
-    await SessionService.instance.load();
-    if (isAuthenticated) {
-      try {
-        final data = await ApiClient.instance.get('/auth/me');
-        await SessionService.instance.updateUser(
-          data['user'] as Map<String, dynamic>,
-        );
-        await _hydrateData();
-      } catch (_) {
-        await SessionService.instance.clear();
+    ApiClient.instance.onUnauthorized = _handleUnauthorized;
+    try {
+      await SessionService.instance.load();
+      if (isAuthenticated) {
+        try {
+          final data = await ApiClient.instance.get('/auth/me');
+          await SessionService.instance.updateUser(
+            data['user'] as Map<String, dynamic>,
+          );
+        } on ApiException catch (error) {
+          if (error.isUnauthorized) await SessionService.instance.clear();
+        } catch (_) {
+          // Mantém a sessão; as telas mostram o erro de carga de cada módulo.
+        }
+        if (isAuthenticated) await loadAll();
       }
+    } catch (_) {
+      // Sem acesso ao armazenamento: segue para o login.
+    } finally {
+      _initialized = true;
+      notifyListeners();
     }
-    _initialized = true;
-    notifyListeners();
   }
 
   Future<void> login({required String email, required String password}) async {
@@ -62,7 +97,7 @@ class AuthService extends ChangeNotifier {
         'password': password,
       });
       await _applySession(data);
-      await _hydrateData();
+      await loadAll();
     } finally {
       _setBusy(false);
     }
@@ -84,7 +119,7 @@ class AuthService extends ChangeNotifier {
           'neighborhood': neighborhood.trim(),
       });
       await _applySession(data);
-      await _hydrateData();
+      await loadAll();
     } finally {
       _setBusy(false);
     }
@@ -125,6 +160,10 @@ class AuthService extends ChangeNotifier {
       data['user'] as Map<String, dynamic>,
     );
     notifyListeners();
+    if (monthlyGoal != null) {
+      UserProgressService.instance.load().catchError((_) {});
+    }
+    if (name != null) CommunityService.instance.load().catchError((_) {});
   }
 
   Future<void> updatePreferences(Map<String, dynamic> preferences) async {
@@ -140,20 +179,57 @@ class AuthService extends ChangeNotifier {
 
   Future<void> logout() async {
     await SessionService.instance.clear();
+    _resetServices();
+    notifyListeners();
+  }
+
+  /// Modo local: apaga os dados deste aparelho, recria a demonstração e sai
+  /// da conta, deixando o app pronto para a próxima apresentação.
+  Future<void> resetDemo() async {
+    await ApiClient.instance.post('/demo/reset');
+    await logout();
+  }
+
+  /// Carrega (ou recarrega) todos os módulos. A falha de um módulo não
+  /// impede os outros; cada serviço guarda o próprio erro para a tela mostrar.
+  Future<void> loadAll() async {
+    Future<void> safely(Future<void> Function() action) async {
+      try {
+        await action();
+      } catch (_) {
+        // O serviço já registrou o erro em `error`.
+      }
+    }
+
+    await Future.wait([
+      safely(UserProgressService.instance.load),
+      safely(AchievementService.instance.load),
+      safely(ActionHistoryService.instance.load),
+      safely(ActionCatalogService.instance.load),
+      safely(NotificationService.instance.load),
+      safely(ChallengeService.instance.load),
+      safely(CommunityService.instance.load),
+      safely(RewardService.instance.load),
+    ]);
+    notifyListeners();
+  }
+
+  void _resetServices() {
     UserProgressService.instance.reset();
     AchievementService.instance.reset();
     ActionHistoryService.instance.clear();
+    ActionCatalogService.instance.reset();
     NotificationService.instance.reset();
     ChallengeService.instance.reset();
     CommunityService.instance.reset();
     RewardService.instance.reset();
-    notifyListeners();
   }
 
-  /// Atualiza os dados depois de registrar uma ação ou concluir um desafio.
-  Future<void> refreshProgress() async {
-    await UserProgressService.instance.load();
-    await AchievementService.instance.load();
+  /// A API recusou o token: encerra a sessão para o roteador levar ao login.
+  void _handleUnauthorized() {
+    if (_signingOut || !isAuthenticated) return;
+    _signingOut = true;
+    logout().whenComplete(() => _signingOut = false);
   }
 
   Future<void> _applySession(Map<String, dynamic> data) async {
@@ -163,49 +239,8 @@ class AuthService extends ChangeNotifier {
     );
   }
 
-  Future<void> _hydrateData() async {
-    Future<void> safely(Future<void> Function() action) async {
-      try {
-        await action();
-      } catch (_) {
-        // Uma falha em um módulo não deve bloquear o acesso ao aplicativo.
-      }
-    }
-
-    await Future.wait([
-      safely(UserProgressService.instance.load),
-      safely(AchievementService.instance.load),
-      safely(ActionHistoryService.instance.load),
-      safely(NotificationService.instance.load),
-      safely(ChallengeService.instance.load),
-      safely(CommunityService.instance.load),
-      safely(RewardService.instance.load),
-    ]);
-    notifyListeners();
-  }
-
   void _setBusy(bool value) {
     _busy = value;
-    notifyListeners();
-  }
-
-  @visibleForTesting
-  Future<void> debugSignIn({
-    String name = 'Clara Mendes',
-    String email = 'clara@eco.app',
-  }) async {
-    await SessionService.instance.save(
-      token: 'debug-token',
-      user: {
-        'id': 1,
-        'name': name,
-        'email': email,
-        'initials': 'CM',
-        'neighborhood': 'Jardim das Flores',
-        'preferences': const <String, dynamic>{},
-      },
-    );
-    _initialized = true;
     notifyListeners();
   }
 }

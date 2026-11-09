@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
 
-enum NotificationCategory { conquista, desafio, comunidade, sistema }
+enum NotificationCategory { conquista, desafio, comunidade, recompensa, sistema }
 
 class AppNotification {
   AppNotification({
@@ -11,6 +11,7 @@ class AppNotification {
     required this.title,
     required this.message,
     required this.timeLabel,
+    this.target,
     this.read = false,
   });
 
@@ -19,7 +20,28 @@ class AppNotification {
   final String title;
   final String message;
   final String timeLabel;
+
+  /// Rota do app relacionada à notificação (por exemplo `/recompensas`).
+  final String? target;
   bool read;
+
+  /// Para onde "Ver no aplicativo" leva.
+  String get destination {
+    final explicit = target;
+    if (explicit != null && explicit.startsWith('/')) return explicit;
+    switch (category) {
+      case NotificationCategory.conquista:
+        return '/conquistas';
+      case NotificationCategory.desafio:
+        return '/desafios';
+      case NotificationCategory.comunidade:
+        return '/comunidade';
+      case NotificationCategory.recompensa:
+        return '/recompensas';
+      case NotificationCategory.sistema:
+        return '/inicio';
+    }
+  }
 
   factory AppNotification.fromApi(Map<String, dynamic> json) {
     final rawCategory = json['category'] as String? ?? 'sistema';
@@ -32,162 +54,156 @@ class AppNotification {
       title: json['title'] as String? ?? 'Notificação',
       message: json['message'] as String? ?? '',
       timeLabel: json['timeLabel'] as String? ?? '',
+      target: json['target'] as String?,
       read: json['read'] as bool? ?? false,
     );
   }
 }
 
+/// Notificações do usuário (`/notifications`).
+///
+/// As alterações aparecem na hora e são desfeitas se a API recusar; nesse
+/// caso [lastError] recebe a mensagem para a tela avisar.
 class NotificationService extends ChangeNotifier {
   NotificationService._();
 
   static final NotificationService instance = NotificationService._();
 
-  final List<AppNotification> _notifications = [
-    AppNotification(
-      id: 'n1',
-      category: NotificationCategory.conquista,
-      title: 'Novo selo desbloqueado!',
-      message:
-          'Você conquistou o selo "Guardião da Água" ao economizar 120 litros nesta semana.',
-      timeLabel: 'Há 10 min',
-    ),
-    AppNotification(
-      id: 'n2',
-      category: NotificationCategory.desafio,
-      title: 'Meta coletiva quase lá',
-      message:
-          'Faltam 120 ações para o bairro alcançar a meta "Nossa Comunidade Mais Verde".',
-      timeLabel: 'Há 2 horas',
-    ),
-    AppNotification(
-      id: 'n3',
-      category: NotificationCategory.comunidade,
-      title: 'Mariana comentou na sua ação',
-      message: '"Que atitude linda! Vou levar os meus resíduos amanhã também."',
-      timeLabel: 'Há 3 horas',
-    ),
-    AppNotification(
-      id: 'n4',
-      category: NotificationCategory.sistema,
-      title: 'Lembrete gentil',
-      message:
-          'Que tal registrar as ações sustentáveis de hoje e manter sua sequência?',
-      timeLabel: 'Ontem',
-      read: true,
-    ),
-    AppNotification(
-      id: 'n5',
-      category: NotificationCategory.conquista,
-      title: 'Semana consciente concluída',
-      message: 'Você registrou ações em 5 dias seguidos. Continue assim!',
-      timeLabel: 'Há 2 dias',
-      read: true,
-    ),
-  ];
-
-  int _nextId = 6;
+  final List<AppNotification> _notifications = [];
+  bool _loaded = false;
+  bool _loading = false;
+  String? _error;
+  String? _lastError;
 
   List<AppNotification> get notifications => List.unmodifiable(_notifications);
 
   int get unreadCount => _notifications.where((n) => !n.read).length;
 
+  bool get isLoaded => _loaded;
+
+  bool get loading => _loading;
+
+  /// Erro da última carga da lista.
+  String? get error => _error;
+
+  /// Erro da última alteração (marcar, remover, limpar). Lido uma vez.
+  String? takeLastError() {
+    final message = _lastError;
+    _lastError = null;
+    return message;
+  }
+
   Future<void> load() async {
-    final data = await ApiClient.instance.get('/notifications');
-    final list = (data['notifications'] as List?) ?? const [];
-    _notifications
-      ..clear()
-      ..addAll(
-        list.map(
-          (item) => AppNotification.fromApi(item as Map<String, dynamic>),
-        ),
-      );
+    _loading = true;
+    _error = null;
     notifyListeners();
-  }
-
-  void add({
-    required NotificationCategory category,
-    required String title,
-    required String message,
-    String timeLabel = 'Agora',
-  }) {
-    _notifications.insert(
-      0,
-      AppNotification(
-        id: 'n${_nextId++}',
-        category: category,
-        title: title,
-        message: message,
-        timeLabel: timeLabel,
-      ),
-    );
-    notifyListeners();
-  }
-
-  void markAsRead(String id) {
-    final notification = _find(id);
-    if (notification == null || notification.read) return;
-    notification.read = true;
-    notifyListeners();
-    final numericId = int.tryParse(id);
-    if (numericId != null) {
-      ApiClient.instance
-          .patch('/notifications/$numericId/read')
-          .catchError((_) => null);
-    }
-  }
-
-  void toggleRead(String id) {
-    final notification = _find(id);
-    if (notification == null) return;
-    if (notification.read) {
-      // A API não expõe "desmarcar como lida"; apenas atualizamos o estado local.
-      notification.read = false;
+    try {
+      final data = await ApiClient.instance.get('/notifications');
+      final list = (data['notifications'] as List?) ?? const [];
+      _notifications
+        ..clear()
+        ..addAll(
+          list.map(
+            (item) => AppNotification.fromApi(item as Map<String, dynamic>),
+          ),
+        );
+      _loaded = true;
+    } on ApiException catch (error) {
+      _error = error.message;
+      rethrow;
+    } finally {
+      _loading = false;
       notifyListeners();
-      return;
     }
-    markAsRead(id);
   }
 
-  void markAllAsRead() {
-    if (unreadCount == 0) return;
-    for (final notification in _notifications) {
+  Future<void> _attempt(
+    Future<void> Function() request,
+    VoidCallback undo,
+  ) async {
+    try {
+      await request();
+    } on ApiException catch (error) {
+      undo();
+      _lastError = error.message;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _setRead(AppNotification notification, bool read) async {
+    if (notification.read == read) return;
+    notification.read = read;
+    notifyListeners();
+    await _attempt(
+      () => ApiClient.instance.patch('/notifications/${notification.id}/read', {
+        'read': read,
+      }),
+      () => notification.read = !read,
+    );
+  }
+
+  Future<void> markAsRead(String id) async {
+    final notification = _find(id);
+    if (notification != null) await _setRead(notification, true);
+  }
+
+  Future<void> toggleRead(String id) async {
+    final notification = _find(id);
+    if (notification != null) await _setRead(notification, !notification.read);
+  }
+
+  Future<void> markAllAsRead() async {
+    final unread = _notifications.where((n) => !n.read).toList();
+    if (unread.isEmpty) return;
+    for (final notification in unread) {
       notification.read = true;
     }
     notifyListeners();
-    ApiClient.instance.post('/notifications/read-all').catchError((_) => null);
-  }
-
-  void remove(String id) {
-    final before = _notifications.length;
-    _notifications.removeWhere((n) => n.id == id);
-    if (_notifications.length != before) {
-      notifyListeners();
-      final numericId = int.tryParse(id);
-      if (numericId != null) {
-        ApiClient.instance
-            .delete('/notifications/$numericId')
-            .catchError((_) => null);
+    await _attempt(() => ApiClient.instance.post('/notifications/read-all'), () {
+      for (final notification in unread) {
+        notification.read = false;
       }
-    }
+    });
   }
 
-  void clear() {
+  Future<void> remove(String id) async {
+    final index = _notifications.indexWhere((n) => n.id == id);
+    if (index < 0) return;
+    final removed = _notifications.removeAt(index);
+    notifyListeners();
+    await _attempt(
+      () => ApiClient.instance.delete('/notifications/$id'),
+      () => _notifications.insert(
+        index.clamp(0, _notifications.length),
+        removed,
+      ),
+    );
+  }
+
+  /// Apaga todas as notificações, também no servidor.
+  Future<void> clear() async {
     if (_notifications.isEmpty) return;
+    final backup = List<AppNotification>.of(_notifications);
     _notifications.clear();
     notifyListeners();
-    ApiClient.instance.delete('/notifications').catchError((_) => null);
+    await _attempt(
+      () => ApiClient.instance.delete('/notifications'),
+      () => _notifications.addAll(backup),
+    );
   }
 
   void reset() {
     _notifications.clear();
+    _loaded = false;
+    _loading = false;
+    _error = null;
+    _lastError = null;
     notifyListeners();
   }
 
   AppNotification? _find(String id) {
     for (final notification in _notifications) {
-      if (notification.id == id) {
-        return notification;
-      }
+      if (notification.id == id) return notification;
     }
     return null;
   }

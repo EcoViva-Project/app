@@ -56,6 +56,65 @@ class AppTheme {
         elevation: 0,
       ),
       dividerColor: AppColors.brandBorder,
+      // Botões com o verde escuro da marca: texto branco com contraste alto e
+      // estado desabilitado legível, sem precisar estilizar tela a tela.
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.brandDarkAccent,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.brandSecondaryContainer,
+          disabledForegroundColor: AppColors.brandTextSecondary,
+          minimumSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.brandDarkAccent,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.brandSecondaryContainer,
+          disabledForegroundColor: AppColors.brandTextSecondary,
+          elevation: 0,
+          minimumSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.brandDarkAccent,
+          minimumSize: const Size(48, 48),
+          side: const BorderSide(color: AppColors.brandDarkAccent),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.brandDarkAccent,
+          minimumSize: const Size(48, 48),
+        ),
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: AppColors.brandDarkAccent,
+      ),
+      snackBarTheme: const SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.brandSurface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.brandSurface,
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+      ),
     );
   }
 }

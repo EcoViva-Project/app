@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 import '../core/services/auth_service.dart';
+import '../core/theme/app_colors.dart';
+import '../core/theme/app_text_styles.dart';
 import '../core/theme/app_theme.dart';
 import '../features/auth/presentation/pages/forgot_password_page.dart';
 import '../features/auth/presentation/pages/login_page.dart';
@@ -70,8 +73,85 @@ class AppShell extends StatelessWidget {
   }
 }
 
+/// Tela mostrada enquanto a sessão salva é conferida.
+class SplashPage extends StatelessWidget {
+  const SplashPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.brandBackground,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/images/eco_leaf_logo.png',
+              width: 96,
+              height: 96,
+              semanticLabel: 'EcoViva',
+            ),
+            const SizedBox(height: 20),
+            const CircularProgressIndicator(color: AppColors.brandDarkAccent),
+            const SizedBox(height: 12),
+            Text(
+              'Abrindo o EcoViva…',
+              style: AppTextStyles.bodyMd.copyWith(
+                color: AppColors.brandTextSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Endereço que não existe no app.
+class NotFoundPage extends StatelessWidget {
+  const NotFoundPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.brandBackground,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.explore_off_outlined,
+                  size: 48,
+                  color: AppColors.brandTextSecondary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Não encontramos esta tela',
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.headlineSm.copyWith(
+                    color: AppColors.brandTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => context.go('/inicio'),
+                  child: const Text('Ir para o início'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class AppRouter {
   static const _authRoutes = {'/login', '/registro', '/esqueci-senha'};
+  static const _splash = '/abrindo';
 
   static final GoRouter router = GoRouter(
     initialLocation: '/inicio',
@@ -79,15 +159,23 @@ class AppRouter {
     redirect: (context, state) {
       final auth = AuthService.instance;
       final location = state.matchedLocation;
-      final isAuthRoute = _authRoutes.contains(location);
 
+      if (!auth.initialized) return location == _splash ? null : _splash;
+
+      final isAuthRoute = _authRoutes.contains(location);
       if (!auth.isAuthenticated) {
         return isAuthRoute ? null : '/login';
       }
-      if (isAuthRoute) return '/inicio';
+      if (isAuthRoute || location == _splash) return '/inicio';
       return null;
     },
+    errorBuilder: (context, state) => const NotFoundPage(),
     routes: [
+      GoRoute(
+        path: _splash,
+        name: 'abrindo',
+        builder: (context, state) => const SplashPage(),
+      ),
       GoRoute(
         path: '/login',
         name: 'login',
@@ -122,7 +210,11 @@ class AppRouter {
               GoRoute(
                 path: '/acoes',
                 name: 'acoes',
-                builder: (context, state) => const AcoesPage(),
+                // `/acoes?categoria=Água` abre a lista já filtrada.
+                builder:
+                    (context, state) => AcoesPage(
+                      initialCategory: state.uri.queryParameters['categoria'],
+                    ),
               ),
             ],
           ),
@@ -155,21 +247,21 @@ class AppRouter {
           ),
         ],
       ),
+      // As telas abaixo recebem o identificador pelo endereço, e não por
+      // `extra`, para continuarem funcionando ao recarregar a página na web
+      // ou ao abrir o endereço direto.
       GoRoute(
-        path: '/registro-acao',
+        path: '/registro-acao/:id',
         name: 'registro_acao',
-        builder: (context, state) {
-          final action = state.extra as Map<String, dynamic>?;
-          return RegistroAcaoPage(action: action);
-        },
+        builder:
+            (context, state) => RegistroAcaoPage(
+              actionId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+            ),
       ),
       GoRoute(
         path: '/confirmacao-registro',
         name: 'confirmacao_registro',
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          return ConfirmacaoRegistroPage(extra: extra);
-        },
+        builder: (context, state) => const ConfirmacaoRegistroPage(),
       ),
       GoRoute(
         path: '/meu-historico',
@@ -177,12 +269,12 @@ class AppRouter {
         builder: (context, state) => const MeuHistoricoPage(),
       ),
       GoRoute(
-        path: '/detalhes-desafio',
+        path: '/detalhes-desafio/:id',
         name: 'detalhes_desafio',
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          return DetalhesDesafioPage(extra: extra);
-        },
+        builder:
+            (context, state) => DetalhesDesafioPage(
+              challengeId: int.tryParse(state.pathParameters['id'] ?? '') ?? 0,
+            ),
       ),
       GoRoute(
         path: '/progresso',
@@ -222,6 +314,9 @@ class EcoApp extends StatelessWidget {
       title: 'EcoViva',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      locale: const Locale('pt', 'BR'),
+      supportedLocales: const [Locale('pt', 'BR')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       routerConfig: AppRouter.router,
     );
   }

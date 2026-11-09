@@ -41,6 +41,11 @@ class IconCatalog {
     'redeem': Icons.redeem,
     'inventory_2': Icons.inventory_2,
     'confirmation_number': Icons.confirmation_number,
+    'restaurant': Icons.restaurant,
+    'local_offer': Icons.local_offer,
+    'card_giftcard': Icons.card_giftcard,
+    'directions_walk': Icons.directions_walk,
+    'forest': Icons.forest,
   };
 
   static IconData resolve(String? name, {IconData fallback = Icons.eco}) {

@@ -2,11 +2,11 @@
 
 import 'app/app.dart';
 import 'core/services/auth_service.dart';
-import 'core/services/session_service.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await SessionService.instance.load();
-  await AuthService.instance.initialize();
+  // A primeira tela aparece na hora; a sessão salva é conferida em seguida e o
+  // roteador troca a tela de abertura pelo login ou pelo início.
   runApp(const EcoApp());
+  AuthService.instance.initialize();
 }

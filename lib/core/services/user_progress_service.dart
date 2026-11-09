@@ -1,119 +1,149 @@
 import 'package:flutter/foundation.dart';
 
-import 'action_history_service.dart';
 import 'api_client.dart';
 
-/// Estado agregado do usuário.
+/// Resumo do usuário: saldo, nível, teto semanal e totais.
 ///
-/// Os números vêm da API (`/progress`). Enquanto a primeira carga não acontece
-/// — por exemplo em testes unitários —, o serviço mantém a base demonstrativa
-/// compatível com o seed do backend.
+/// Todos os números vêm da API (`/progress`). Antes da primeira carga os
+/// valores são zero e [isLoaded] é falso: as telas devem mostrar carregamento
+/// ou erro, nunca números de exemplo.
 class UserProgressService extends ChangeNotifier {
-  UserProgressService._() {
-    ActionHistoryService.instance.addListener(_handleHistoryChanged);
-  }
+  UserProgressService._();
 
   static final UserProgressService instance = UserProgressService._();
 
-  static const int basePoints = 1240;
-  static const int baseActions = 42;
-  static const int baseActiveDays = 12;
-  static const int baseMonthlyActions = 14;
-  static const int baseLitersSaved = 28;
-  static const int defaultMonthlyGoal = 17;
-
   Map<String, dynamic>? _summary;
-  bool _loaded = false;
+  bool _loading = false;
+  String? _error;
 
-  void _handleHistoryChanged() {
-    if (_summary == null) notifyListeners();
-  }
+  bool get isLoaded => _summary != null;
 
-  List<ActionRecord> get _records => ActionHistoryService.instance.records;
+  bool get loading => _loading;
 
-  bool get isLoaded => _loaded;
+  String? get error => _error;
 
   Map<String, dynamic>? get summary => _summary;
 
-  int get points =>
-      (_summary?['points'] as num?)?.toInt() ??
-      basePoints + _records.fold<int>(0, (sum, record) => sum + record.points);
+  int _int(String key) => (_summary?[key] as num?)?.toInt() ?? 0;
 
-  int get pointsEarned =>
-      (_summary?['pointsEarned'] as num?)?.toInt() ?? points;
+  /// Saldo disponível para resgates (ganhos menos gastos).
+  int get points => _int('points');
 
-  int get pointsSpent => (_summary?['pointsSpent'] as num?)?.toInt() ?? 0;
+  /// Total de pontos já ganhos; é ele que define o nível.
+  int get pointsEarned => _int('pointsEarned');
 
-  int get actionsCount =>
-      (_summary?['actionsCount'] as num?)?.toInt() ??
-      baseActions + _records.length;
+  int get pointsSpent => _int('pointsSpent');
 
-  int get activeDays =>
-      (_summary?['activeDays'] as num?)?.toInt() ?? baseActiveDays;
+  int get actionsCount => _int('actionsCount');
 
-  int get monthlyActions {
-    final fromServer = (_summary?['monthlyActions'] as num?)?.toInt();
-    if (fromServer != null) return fromServer;
-    final now = DateTime.now();
-    final recordedThisMonth =
-        _records.where((record) {
-          return record.dateTime.year == now.year &&
-              record.dateTime.month == now.month;
-        }).length;
-    return baseMonthlyActions + recordedThisMonth;
-  }
+  int get activeDays => _int('activeDays');
 
-  int get monthlyGoal =>
-      (_summary?['monthlyGoal'] as num?)?.toInt() ?? defaultMonthlyGoal;
+  int get monthlyActions => _int('monthlyActions');
+
+  int get monthlyGoal => _int('monthlyGoal');
 
   double get monthlyGoalProgress =>
-      (_summary?['monthlyGoalProgress'] as num?)?.toDouble() ??
-      (monthlyActions / monthlyGoal).clamp(0.0, 1.0).toDouble();
+      (_summary?['monthlyGoalProgress'] as num?)?.toDouble() ?? 0;
 
-  int get litersSaved =>
-      (_summary?['litersSaved'] as num?)?.toInt() ??
-      baseLitersSaved +
-          _records.fold<int>(0, (sum, record) => sum + record.liters);
+  int get litersSaved => _int('litersSaved');
 
-  String get level => _summary?['level'] as String? ?? _levelFromPoints(points);
+  String get level => _summary?['level'] as String? ?? '';
+
+  String get levelName => _summary?['levelName'] as String? ?? '';
+
+  int get levelNumber => _int('levelNumber');
+
+  int get levelFloor => _int('levelFloor');
+
+  /// Pontos ganhos necessários para o próximo nível; `null` no último nível.
+  int? get nextLevelAt => (_summary?['nextLevelAt'] as num?)?.toInt();
+
+  int get pointsToNextLevel {
+    final next = nextLevelAt;
+    return next == null ? 0 : (next - pointsEarned).clamp(0, next);
+  }
+
+  double get levelProgress {
+    final next = nextLevelAt;
+    if (next == null) return 1;
+    final span = next - levelFloor;
+    if (span <= 0) return 1;
+    return ((pointsEarned - levelFloor) / span).clamp(0.0, 1.0);
+  }
+
+  /// Pontos de ações já creditados nesta semana.
+  int get weeklyPoints => _int('weeklyPoints');
+
+  /// Teto semanal de pontos de ações.
+  int get weeklyCap => _int('weeklyCap');
+
+  int get weeklyRemaining => _int('weeklyRemaining');
+
+  bool get hasWeeklyCap => weeklyCap > 0;
+
+  bool get capReached => hasWeeklyCap && weeklyRemaining <= 0;
+
+  double get weeklyProgress =>
+      hasWeeklyCap ? (weeklyPoints / weeklyCap).clamp(0.0, 1.0) : 0;
+
+  /// Quando o teto zera (segunda-feira, 00:00 de Brasília).
+  DateTime? get weekResetsAt =>
+      DateTime.tryParse(_summary?['weekResetsAt'] as String? ?? '')?.toLocal();
+
+  /// Dias seguidos com ação registrada, contando hoje ou ontem.
+  int get streakDays => _int('streakDays');
+
+  int get bestStreak => _int('bestStreak');
 
   String get formattedPoints => formatNumber(points);
 
   Future<void> load() async {
-    final data = await ApiClient.instance.get('/progress');
-    applySummary(data['summary'] as Map<String, dynamic>);
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final data = await ApiClient.instance.get('/progress');
+      _summary = data['summary'] as Map<String, dynamic>;
+    } on ApiException catch (error) {
+      _error = error.message;
+      rethrow;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
   }
 
   void applySummary(Map<String, dynamic>? summary) {
+    if (summary == null) return;
     _summary = summary;
-    _loaded = true;
+    _error = null;
     notifyListeners();
   }
 
   void reset() {
     _summary = null;
-    _loaded = false;
+    _error = null;
+    _loading = false;
     notifyListeners();
   }
 
-  static String _levelFromPoints(int points) {
-    if (points < 500) return 'Semente • Nível 1';
-    if (points < 1000) return 'Broto • Nível 2';
-    if (points < 1500) return 'Guardiã Verde • Nível 3';
-    if (points < 2500) return 'Guardiã do Bairro • Nível 4';
-    return 'Guardiã do Planeta • Nível 5';
-  }
-
+  /// 1240 → "1.240".
   static String formatNumber(int value) {
-    final digits = value.toString();
+    final negative = value < 0;
+    final digits = value.abs().toString();
     final buffer = StringBuffer();
     for (var i = 0; i < digits.length; i++) {
       final remaining = digits.length - i;
       buffer.write(digits[i]);
-      if (remaining > 1 && remaining % 3 == 1) {
-        buffer.write('.');
-      }
+      if (remaining > 1 && remaining % 3 == 1) buffer.write('.');
     }
-    return buffer.toString();
+    return negative ? '-$buffer' : buffer.toString();
+  }
+
+  /// 3200 centavos → "R$ 32,00".
+  static String formatMoney(int cents) {
+    final reais = cents ~/ 100;
+    final rest = (cents % 100).toString().padLeft(2, '0');
+    return 'R\$ ${formatNumber(reais)},$rest';
   }
 }

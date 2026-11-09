@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Necessária também no APK de release: sem ela o app não acessa a API no modo online. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="eco_app"
+        android:label="EcoViva"
+        android:usesCleartextTraffic="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
