@@ -1,178 +1,117 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../../core/services/action_catalog_service.dart';
+import '../../../../core/services/api_client.dart';
+import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_page_header.dart';
+import '../../../../core/widgets/state_views.dart';
+import '../../../../core/widgets/weekly_cap_card.dart';
 
+enum _SortMode {
+  relevance('Relevância', 'Ordem do catálogo'),
+  points('Mais pontos', 'Ações que valem mais primeiro'),
+  alphabetical('Ordem alfabética', 'De A a Z');
+
+  const _SortMode(this.title, this.subtitle);
+
+  final String title;
+  final String subtitle;
+}
+
+const Map<String, String> _accents = {
+  'á': 'a',
+  'à': 'a',
+  'â': 'a',
+  'ã': 'a',
+  'ä': 'a',
+  'é': 'e',
+  'è': 'e',
+  'ê': 'e',
+  'ë': 'e',
+  'í': 'i',
+  'ì': 'i',
+  'î': 'i',
+  'ï': 'i',
+  'ó': 'o',
+  'ò': 'o',
+  'ô': 'o',
+  'õ': 'o',
+  'ö': 'o',
+  'ú': 'u',
+  'ù': 'u',
+  'û': 'u',
+  'ü': 'u',
+  'ç': 'c',
+};
+
+/// Minúsculas e sem acento, para a busca achar "Água" ao digitar "agua".
+String _normalize(String text) {
+  final buffer = StringBuffer();
+  for (final rune in text.toLowerCase().runes) {
+    final char = String.fromCharCode(rune);
+    buffer.write(_accents[char] ?? char);
+  }
+  return buffer.toString();
+}
+
+/// Catálogo de ações sustentáveis, com busca, categoria e ordenação.
 class AcoesPage extends StatefulWidget {
-  const AcoesPage({super.key});
+  const AcoesPage({super.key, this.initialCategory});
+
+  /// Nome exibido da categoria (por exemplo "Água"), vindo de
+  /// `/acoes?categoria=Água`.
+  final String? initialCategory;
 
   @override
   State<AcoesPage> createState() => _AcoesPageState();
 }
 
 class _AcoesPageState extends State<AcoesPage> {
-  String _selectedCategory = 'all';
+  final ActionCatalogService _catalog = ActionCatalogService.instance;
   final TextEditingController _searchController = TextEditingController();
+
+  /// Nome exibido da categoria escolhida; `null` = todas.
+  String? _selectedCategory;
   String _searchQuery = '';
-  String _sortMode = 'relevance';
+  _SortMode _sortMode = _SortMode.relevance;
 
-  final List<Map<String, dynamic>> _actions = [
-    {
-      'id': 1,
-      'title': 'Fechar a torneira ao escovar os dentes',
-      'description': 'Economia estimada de ~12L de água por ciclo',
-      'category': 'agua',
-      'categoryLabel': 'Água',
-      'icon': Icons.water_drop,
-      'points': '+15 pts',
-      'pointsValue': 15,
-      'liters': 12,
-      'info': 'Hábito diário',
-      'infoIcon': Icons.schedule,
-      'tags': ['agua', 'torneira', 'dentes', 'banho'],
-      'footerInfo': '432 vizinhos registraram hoje',
-      'footerIcon': Icons.groups,
-    },
-    {
-      'id': 2,
-      'title': 'Separar resíduos secos e orgânicos',
-      'description': 'Destino correto de plástico, papel, vidro e metal',
-      'category': 'reciclagem',
-      'categoryLabel': 'Reciclagem',
-      'icon': Icons.recycling,
-      'points': '+30 pts',
-      'pointsValue': 30,
-      'liters': 0,
-      'info': 'Coleta seletiva',
-      'infoIcon': Icons.recycling,
-      'tags': ['reciclagem', 'lixo', 'residuos', 'secos', 'organicos'],
-      'footerInfo': 'Evita 0.8kg de CO₂ equivalente',
-      'footerIcon': Icons.eco,
-    },
-    {
-      'id': 3,
-      'title': 'Deslocamento a pé ou de bicicleta',
-      'description': 'Mobilidade ativa sem emissões diretas de carbono',
-      'category': 'transporte',
-      'categoryLabel': 'Transporte',
-      'icon': Icons.directions_bike,
-      'points': '+40 pts',
-      'pointsValue': 40,
-      'liters': 0,
-      'info': 'Saúde & Ar Limpo',
-      'infoIcon': Icons.favorite,
-      'tags': [
-        'transporte',
-        'bicicleta',
-        'bike',
-        'caminha',
-        'pe',
-        'mobilidade',
-      ],
-      'footerInfo': 'Distâncias de até 5 km',
-      'footerIcon': Icons.route,
-    },
-    {
-      'id': 4,
-      'title': 'Compostagem de resíduos orgânicos',
-      'description':
-          'Cascas, borra de café e restos vegetais transformados em adubo',
-      'category': 'alimentacao',
-      'categoryLabel': 'Alimentação',
-      'icon': Icons.compost,
-      'points': '+35 pts',
-      'pointsValue': 35,
-      'liters': 0,
-      'info': 'Nutrientes de volta ao solo',
-      'infoIcon': Icons.yard,
-      'tags': ['alimentacao', 'compostagem', 'comida', 'horta', 'adubo'],
-      'footerInfo': 'Reduz 45% do lixo doméstico',
-      'footerIcon': Icons.check_circle,
-    },
-    {
-      'id': 5,
-      'title': 'Apagar luzes em cômodos vazios',
-      'description': 'Eficiência energética e redução no consumo mensal',
-      'category': 'energia',
-      'categoryLabel': 'Energia',
-      'icon': Icons.lightbulb_outline,
-      'points': '+20 pts',
-      'pointsValue': 20,
-      'liters': 0,
-      'info': 'Consumo Consciente',
-      'infoIcon': Icons.bolt,
-      'tags': ['energia', 'luz', 'comodo', 'eletricidade', 'lampada'],
-      'footerInfo': 'Até 10% de alívio na fatura',
-      'footerIcon': Icons.savings,
-    },
-    {
-      'id': 6,
-      'title': 'Mutirão de limpeza de praça pública',
-      'description':
-          'Cuidado com os canteiros, descarte e conservação de áreas comuns',
-      'category': 'publico',
-      'categoryLabel': 'Espaços Públicos',
-      'icon': Icons.park,
-      'points': '+60 pts',
-      'pointsValue': 60,
-      'liters': 0,
-      'info': 'Coletivo',
-      'infoIcon': Icons.diversity_1,
-      'tags': [
-        'publico',
-        'praca',
-        'parque',
-        'mutirao',
-        'comunidade',
-        'limpeza',
-      ],
-      'footerInfo': 'Insígnia de Zelador Cívico',
-      'footerIcon': Icons.military_tech,
-    },
-  ];
+  /// Carga pedida por esta tela (primeira carga, "Tentar de novo" ou puxar
+  /// para atualizar).
+  bool _loadingNow = false;
 
-  List<Map<String, dynamic>> get _filteredActions {
-    final items =
-        _actions.where((action) {
-          final matchesCategory =
-              _selectedCategory == 'all' ||
-              action['category'] == _selectedCategory;
-          final matchesSearch =
-              _searchQuery.isEmpty ||
-              action['title'].toString().toLowerCase().contains(
-                _searchQuery.toLowerCase(),
-              ) ||
-              action['description'].toString().toLowerCase().contains(
-                _searchQuery.toLowerCase(),
-              ) ||
-              (action['tags'] as List).any(
-                (tag) => tag.toString().toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ),
-              );
-          return matchesCategory && matchesSearch;
-        }).toList();
+  /// Erro de carga que o serviço não guardou em `error`.
+  String? _loadError;
 
-    if (_sortMode == 'points') {
-      items.sort((a, b) => _pointsOf(b).compareTo(_pointsOf(a)));
-    } else if (_sortMode == 'alphabetical') {
-      items.sort(
-        (a, b) => a['title'].toString().toLowerCase().compareTo(
-          b['title'].toString().toLowerCase(),
-        ),
-      );
+  @override
+  void initState() {
+    super.initState();
+    _selectedCategory = _cleanCategory(widget.initialCategory);
+    if (!_catalog.isLoaded && !_catalog.loading) {
+      // Depois do primeiro quadro: `load()` avisa os ouvintes na hora, e isso
+      // não pode acontecer no meio da montagem da tela.
+      _loadingNow = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runLoad());
     }
-
-    return items;
   }
 
-  int _pointsOf(Map<String, dynamic> action) {
-    final digits = action['points'].toString().replaceAll(
-      RegExp(r'[^0-9]'),
-      '',
-    );
-    return int.tryParse(digits) ?? 0;
+  @override
+  void didUpdateWidget(covariant AcoesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialCategory == oldWidget.initialCategory) return;
+    final incoming = _cleanCategory(widget.initialCategory);
+    // Igual ao filtro atual: foi esta tela que mudou o endereço.
+    if (incoming == _selectedCategory) return;
+    _selectedCategory = incoming;
+    if (incoming != null && _searchQuery.isNotEmpty) {
+      // Outra tela pediu uma categoria: a busca antiga esconderia o resultado.
+      _searchQuery = '';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchController.clear();
+      });
+    }
   }
 
   @override
@@ -181,29 +120,552 @@ class _AcoesPageState extends State<AcoesPage> {
     super.dispose();
   }
 
+  static String? _cleanCategory(String? value) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  Future<void> _load() async {
+    if (_loadingNow) return;
+    setState(() {
+      _loadingNow = true;
+      _loadError = null;
+    });
+    await _runLoad();
+  }
+
+  Future<void> _runLoad() async {
+    if (!mounted) {
+      _loadingNow = false;
+      return;
+    }
+    // O cartão do teto semanal depende do resumo; se ele não veio na abertura
+    // do app, tenta de novo junto (sem travar nem acusar erro nesta tela).
+    final progress = UserProgressService.instance;
+    if (!progress.isLoaded && !progress.loading) {
+      progress.load().catchError((_) {});
+    }
+    try {
+      await _catalog.load();
+    } catch (error) {
+      if (!mounted) return;
+      if (_catalog.isLoaded) {
+        // A lista anterior continua na tela; só avisa.
+        showErrorSnackBar(
+          context,
+          error,
+          fallback: 'Não foi possível atualizar as ações. Tente de novo.',
+        );
+      } else {
+        _loadError =
+            error is ApiException
+                ? error.message
+                : 'Não foi possível carregar as ações. Tente de novo.';
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingNow = false);
+      } else {
+        _loadingNow = false;
+      }
+    }
+  }
+
+  void _selectCategory(String? label) {
+    setState(() => _selectedCategory = label);
+    if (label == _cleanCategory(widget.initialCategory)) return;
+    // O endereço acompanha o filtro. Sem isso, abrir de novo o mesmo
+    // `/acoes?categoria=…` a partir de outra tela não reaplicaria a categoria.
+    GoRouter.maybeOf(context)?.go(
+      Uri(
+        path: '/acoes',
+        queryParameters: label == null ? null : {'categoria': label},
+      ).toString(),
+    );
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
+
+  void _clearFilters() {
+    _clearSearch();
+    _selectCategory(null);
+  }
+
+  /// A categoria escolhida, se ela existir no catálogo.
+  ActionCategory? _resolveCategory(List<ActionCategory> categories) {
+    final wanted = _selectedCategory;
+    if (wanted == null) return null;
+    final key = _normalize(wanted);
+    for (final category in categories) {
+      if (_normalize(category.label) == key || _normalize(category.id) == key) {
+        return category;
+      }
+    }
+    return null;
+  }
+
+  List<EcoAction> _visibleActions(ActionCategory? category) {
+    final query = _normalize(_searchQuery.trim());
+    final all = _catalog.actions;
+    final order = {for (var i = 0; i < all.length; i++) all[i].id: i};
+    final items =
+        all.where((action) {
+          if (category != null && action.category != category.id) return false;
+          if (query.isEmpty) return true;
+          return _normalize(action.title).contains(query) ||
+              _normalize(action.description).contains(query) ||
+              action.tags.any((tag) => _normalize(tag).contains(query));
+        }).toList();
+
+    int byCatalogOrder(EcoAction a, EcoAction b) =>
+        (order[a.id] ?? 0).compareTo(order[b.id] ?? 0);
+
+    switch (_sortMode) {
+      case _SortMode.relevance:
+        break;
+      case _SortMode.points:
+        items.sort((a, b) {
+          final byPoints = b.points.compareTo(a.points);
+          return byPoints != 0 ? byPoints : byCatalogOrder(a, b);
+        });
+      case _SortMode.alphabetical:
+        items.sort((a, b) {
+          final byTitle = _normalize(a.title).compareTo(_normalize(b.title));
+          return byTitle != 0 ? byTitle : byCatalogOrder(a, b);
+        });
+    }
+    return items;
+  }
+
+  void _showSortSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      // Por cima da barra de abas, e não só da área desta aba.
+      useRootNavigator: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    'Ordenar ações',
+                    style: AppTextStyles.headlineSm.copyWith(
+                      color: AppColors.brandTextPrimary,
+                    ),
+                  ),
+                ),
+                for (final mode in _SortMode.values)
+                  Semantics(
+                    inMutuallyExclusiveGroup: true,
+                    checked: mode == _sortMode,
+                    child: ListTile(
+                      leading: Icon(
+                        mode == _sortMode
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                        color: AppColors.brandDarkAccent,
+                      ),
+                      title: Text(
+                        mode.title,
+                        style: AppTextStyles.bodyLg.copyWith(
+                          color: AppColors.brandTextPrimary,
+                          fontWeight:
+                              mode == _sortMode
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
+                        ),
+                      ),
+                      subtitle: Text(
+                        mode.subtitle,
+                        style: AppTextStyles.bodySm.copyWith(
+                          color: AppColors.brandTextSecondary,
+                        ),
+                      ),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        setState(() => _sortMode = mode);
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.brandBackground,
-      appBar: AppPageHeader(
+      appBar: const AppPageHeader(
         pageIcon: Icons.eco,
-        title: 'Ações',
-        profileInitials: 'C',
-        onProfilePressed: () {
-          context.go('/perfil');
-        },
+        title: 'Ações Sustentáveis',
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: 100),
-          child: Column(
+        child: RefreshIndicator(
+          color: AppColors.brandDarkAccent,
+          onRefresh: _load,
+          child: ListenableBuilder(
+            listenable: _catalog,
+            builder: (context, _) => _buildContent(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    final slivers = <Widget>[
+      const SliverToBoxAdapter(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: WeeklyCapCard(compact: true),
+        ),
+      ),
+    ];
+
+    if (!_catalog.isLoaded) {
+      slivers.add(
+        SliverFillRemaining(hasScrollBody: false, child: _buildUnloaded()),
+      );
+    } else if (_catalog.actions.isEmpty) {
+      slivers.add(
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyStateView(
+            icon: Icons.eco_outlined,
+            title: 'Nenhuma ação disponível',
+            message: 'O catálogo de ações está vazio no momento.',
+            actionLabel: 'Atualizar',
+            onAction: _load,
+          ),
+        ),
+      );
+    } else {
+      final categories = _catalog.categories;
+      final selected = _resolveCategory(categories);
+      final visible = _visibleActions(selected);
+
+      slivers
+        ..add(SliverToBoxAdapter(child: _buildSearchRow()))
+        ..add(SliverToBoxAdapter(child: _buildCategoryChips(categories, selected)))
+        ..add(
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
+                  _countLabel(visible.length, selected),
+                  style: AppTextStyles.labelMd.copyWith(
+                    color: AppColors.brandTextSecondary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+      if (visible.isEmpty) {
+        slivers.add(
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: EmptyStateView(
+              icon: Icons.search_off,
+              title: 'Nenhuma ação encontrada',
+              message: 'Tente outros termos ou outra categoria.',
+              actionLabel: 'Limpar filtros',
+              onAction: _clearFilters,
+            ),
+          ),
+        );
+      } else {
+        slivers.add(
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            sliver: SliverList.separated(
+              itemCount: visible.length,
+              separatorBuilder: (context, _) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final action = visible[index];
+                return _ActionCard(
+                  key: ValueKey<int>(action.id),
+                  action: action,
+                  onRegister: () => context.push('/registro-acao/${action.id}'),
+                );
+              },
+            ),
+          ),
+        );
+      }
+    }
+
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      slivers: slivers,
+    );
+  }
+
+  Widget _buildUnloaded() {
+    final message = _catalog.error ?? _loadError;
+    if (message == null && (_catalog.loading || _loadingNow)) {
+      return const LoadingView(message: 'Carregando ações…');
+    }
+    return LoadErrorView(
+      message: message ?? 'Não foi possível carregar as ações.',
+      onRetry: _load,
+    );
+  }
+
+  String _countLabel(int count, ActionCategory? category) {
+    final buffer = StringBuffer(count == 1 ? '1 ação' : '$count ações');
+    if (category != null) buffer.write(' em ${category.label}');
+    if (_sortMode != _SortMode.relevance) {
+      buffer.write(' · ${_sortMode.title.toLowerCase()}');
+    }
+    return buffer.toString();
+  }
+
+  Widget _buildSearchRow() {
+    OutlineInputBorder border(Color color, [double width = 1]) {
+      return OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: color, width: width),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _searchQuery = value),
+              textInputAction: TextInputAction.search,
+              style: AppTextStyles.bodyMd.copyWith(
+                color: AppColors.brandTextPrimary,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Buscar ação',
+                hintStyle: AppTextStyles.bodyMd.copyWith(
+                  color: AppColors.brandTextSecondary,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search,
+                  color: AppColors.brandTextSecondary,
+                ),
+                suffixIcon:
+                    _searchQuery.isEmpty
+                        ? null
+                        : IconButton(
+                          tooltip: 'Limpar busca',
+                          icon: const Icon(
+                            Icons.close,
+                            color: AppColors.brandTextSecondary,
+                          ),
+                          onPressed: _clearSearch,
+                        ),
+                filled: true,
+                fillColor: AppColors.brandSurface,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 14,
+                ),
+                border: border(AppColors.brandBorder),
+                enabledBorder: border(AppColors.brandBorder),
+                focusedBorder: border(AppColors.brandDarkAccent, 1.5),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Ordenar ações',
+            onPressed: _showSortSheet,
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.brandSurface,
+              foregroundColor: AppColors.brandDarkAccent,
+              minimumSize: const Size(48, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: AppColors.brandBorder),
+              ),
+            ),
+            icon: const Icon(Icons.sort),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryChips(
+    List<ActionCategory> categories,
+    ActionCategory? selected,
+  ) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Row(
+        children: [
+          _CategoryChip(
+            label: 'Todas',
+            icon: Icons.apps,
+            selected: selected == null,
+            onTap: () => _selectCategory(null),
+          ),
+          for (final category in categories) ...[
+            const SizedBox(width: 8),
+            _CategoryChip(
+              label: category.label,
+              icon: category.icon,
+              selected: selected?.id == category.id,
+              onTap: () => _selectCategory(category.label),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final background =
+        selected ? AppColors.brandDarkAccent : AppColors.brandSurface;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: background,
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: selected ? AppColors.brandDarkAccent : AppColors.brandBorder,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: selected ? Colors.white : AppColors.brandDarkAccent,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: AppTextStyles.labelLg.copyWith(
+                      color:
+                          selected ? Colors.white : AppColors.brandTextPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
+    super.key,
+    required this.action,
+    required this.onRegister,
+  });
+
+  final EcoAction action;
+  final VoidCallback onRegister;
+
+  /// "1 de 2 hoje" ou "0 de 1 nesta semana"; `null` se a ação não tem limite.
+  String? get _usageLabel {
+    final daily = action.dailyLimit;
+    final weekly = action.weeklyLimit;
+    if (weekly != null && (daily == null || action.usedThisWeek >= weekly)) {
+      return '${action.usedThisWeek} de $weekly nesta semana';
+    }
+    if (daily != null) return '${action.usedToday} de $daily hoje';
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final info = action.info ?? '';
+    final footer = action.footerInfo ?? '';
+    final limit = action.limitLabel;
+    final usage = _usageLabel;
+    final meta = <Widget>[
+      if (action.liters > 0)
+        _MetaChip(
+          icon: Icons.water_drop_outlined,
+          label: '${action.liters} L por registro',
+        ),
+      if (limit != null) _MetaChip(icon: Icons.event_repeat, label: limit),
+      if (usage != null) _MetaChip(icon: Icons.task_alt, label: usage),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.brandSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.brandBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+              ExcludeSemantics(
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.brandSecondaryContainer,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    action.icon,
+                    color: AppColors.brandDarkAccent,
+                    size: 22,
+                  ),
                 ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -214,745 +676,155 @@ class _AcoesPageState extends State<AcoesPage> {
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
+                            horizontal: 8,
+                            vertical: 2,
                           ),
                           decoration: BoxDecoration(
                             color: AppColors.brandSecondaryContainer,
                             borderRadius: BorderRadius.circular(999),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.arrow_back_ios_new,
-                                size: 12,
-                                color: AppColors.brandDarkAccent,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Impacto Coletivo',
-                                style: AppTextStyles.labelSm.copyWith(
-                                  color: AppColors.brandDarkAccent,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            action.categoryLabel,
+                            style: AppTextStyles.labelMd.copyWith(
+                              color: AppColors.brandDarkAccent,
+                            ),
                           ),
                         ),
-                        Text(
-                          '• Hoje: +1.420 ações',
-                          style: AppTextStyles.labelSm.copyWith(
-                            color: AppColors.brandTextSecondary,
+                        if (info.isNotEmpty)
+                          _IconText(
+                            icon: action.infoIcon ?? Icons.info_outline,
+                            text: info,
                           ),
-                        ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Text(
-                      'Ações Sustentáveis',
-                      style: AppTextStyles.headlineMd.copyWith(
-                        color: AppColors.brandTextPrimary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Pequenos hábitos diários que geram grande impacto positivo na nossa comunidade.',
+                      action.title,
                       style: AppTextStyles.bodyMd.copyWith(
-                        color: AppColors.brandTextSecondary,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.brandTextPrimary,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: AppColors.brandSurface,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: TextField(
-                          controller: _searchController,
-                          onChanged: (value) {
-                            setState(() {
-                              _searchQuery = value;
-                            });
-                          },
-                          decoration: InputDecoration(
-                            hintText:
-                                'Buscar ação (ex: torneira, reciclagem...)',
-                            hintStyle: AppTextStyles.bodyMd.copyWith(
-                              color: AppColors.brandTextSecondary.withOpacity(
-                                0.7,
-                              ),
-                            ),
-                            prefixIcon: const Icon(
-                              Icons.search,
-                              color: AppColors.brandTextSecondary,
-                              size: 20,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandSurface,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: IconButton(
-                        onPressed: () => _showFilters(context),
-                        tooltip: 'Ordenar ações',
-                        icon: Icon(
-                          Icons.tune,
-                          color:
-                              _sortMode == 'relevance'
-                                  ? AppColors.brandPrimary
-                                  : AppColors.brandDarkAccent,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 40,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    _buildCategoryChip('all', 'Todas', Icons.done),
-                    const SizedBox(width: 8),
-                    _buildCategoryChip('agua', 'Água', Icons.water_drop),
-                    const SizedBox(width: 8),
-                    _buildCategoryChip(
-                      'energia',
-                      'Energia',
-                      Icons.lightbulb_outline,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildCategoryChip(
-                      'reciclagem',
-                      'Reciclagem',
-                      Icons.recycling,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildCategoryChip(
-                      'alimentacao',
-                      'Alimentação',
-                      Icons.compost,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildCategoryChip(
-                      'transporte',
-                      'Transporte',
-                      Icons.directions_bike,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildCategoryChip(
-                      'publico',
-                      'Espaços Públicos',
-                      Icons.park,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Atividades Sugeridas (${_filteredActions.length})',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.labelSm.copyWith(
-                          color: AppColors.brandTextSecondary,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.bolt,
-                          color: AppColors.brandPrimary,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Meta Diária: 1/3',
-                          style: AppTextStyles.labelSm.copyWith(
-                            color: AppColors.brandDarkAccent,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children:
-                      _filteredActions.isEmpty
-                          ? [
-                            const SizedBox(height: 40),
-                            Column(
-                              children: [
-                                Container(
-                                  width: 56,
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.brandSecondaryContainer,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.search_off,
-                                    color: AppColors.brandPrimary,
-                                    size: 28,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Nenhuma ação encontrada',
-                                  style: AppTextStyles.headlineSm.copyWith(
-                                    color: AppColors.brandTextPrimary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Tente outros termos ou sugira uma prática comunitária inédita para a sua vizinhança.',
-                                  textAlign: TextAlign.center,
-                                  style: AppTextStyles.bodySm.copyWith(
-                                    color: AppColors.brandTextSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ]
-                          : _filteredActions.map((action) {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _buildActionCard(action),
-                            );
-                          }).toList(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.brandSecondaryContainer.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.brandSurface,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.lightbulb_circle,
-                          color: AppColors.brandPrimary,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Sentiu falta de algum hábito?',
-                              style: AppTextStyles.bodyMd.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.brandTextPrimary,
-                              ),
-                            ),
-                            Text(
-                              'Sugira uma prática para toda a cidade',
-                              style: AppTextStyles.bodySm.copyWith(
-                                color: AppColors.brandTextSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => _showSuggestionDialog(context),
-                        icon: const Icon(Icons.add_circle, size: 18),
-                        label: const Text('Sugerir'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.brandPrimary,
-                          backgroundColor: AppColors.brandSurface,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showFilters(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.brandSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 8, 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Ordenar ações',
-                        style: AppTextStyles.headlineSm.copyWith(
-                          color: AppColors.brandTextPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(),
-                      icon: const Icon(
-                        Icons.close,
-                        color: AppColors.brandTextSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _sortOption(
-                sheetContext,
-                'relevance',
-                'Relevância',
-                'Ordem original da lista',
-              ),
-              _sortOption(
-                sheetContext,
-                'points',
-                'Mais pontos',
-                'Maior impacto por ação primeiro',
-              ),
-              _sortOption(
-                sheetContext,
-                'alphabetical',
-                'Ordem alfabética',
-                'De A a Z',
-              ),
-              if (_selectedCategory != 'all' || _searchQuery.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _selectedCategory = 'all';
-                          _searchQuery = '';
-                          _searchController.clear();
-                        });
-                        Navigator.of(sheetContext).pop();
-                      },
-                      icon: const Icon(Icons.filter_alt_off, size: 18),
-                      label: const Text('Limpar filtros de busca'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.brandTextSecondary,
-                        side: const BorderSide(color: AppColors.brandBorder),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              else
-                const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _sortOption(
-    BuildContext sheetContext,
-    String value,
-    String title,
-    String subtitle,
-  ) {
-    final selected = _sortMode == value;
-    return ListTile(
-      leading: Icon(
-        selected ? Icons.radio_button_checked : Icons.radio_button_off,
-        color: AppColors.brandPrimary,
-      ),
-      title: Text(
-        title,
-        style: AppTextStyles.bodyMd.copyWith(
-          color: AppColors.brandTextPrimary,
-          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: AppTextStyles.labelSm.copyWith(
-          color: AppColors.brandTextSecondary,
-        ),
-      ),
-      onTap: () {
-        setState(() => _sortMode = value);
-        Navigator.of(sheetContext).pop();
-      },
-    );
-  }
-
-  Future<void> _showSuggestionDialog(BuildContext context) async {
-    final controller = TextEditingController();
-
-    final submitted = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: AppColors.brandSurface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Text(
-            'Sugerir uma prática',
-            style: AppTextStyles.headlineSm.copyWith(
-              color: AppColors.brandTextPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          content: TextField(
-            controller: controller,
-            maxLines: 3,
-            textCapitalization: TextCapitalization.sentences,
-            style: AppTextStyles.bodyMd.copyWith(
-              color: AppColors.brandTextPrimary,
-            ),
-            decoration: const InputDecoration(
-              hintText:
-                  'Ex.: Separar o óleo de cozinha usado para reciclagem...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Enviar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (!mounted) {
-      controller.dispose();
-      return;
-    }
-
-    if (submitted == true && controller.text.trim().isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sugestão enviada para a equipe. Obrigado!'),
-        ),
-      );
-    }
-    controller.dispose();
-  }
-
-  Widget _buildCategoryChip(String value, String label, IconData icon) {
-    final isSelected = _selectedCategory == value;
-    return Semantics(
-      button: true,
-      selected: isSelected,
-      label: label,
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedCategory = value;
-          });
-        },
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 48),
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? AppColors.brandPrimary : AppColors.brandSurface,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow:
-                isSelected
-                    ? null
-                    : [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.02),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: isSelected ? Colors.white : AppColors.brandPrimary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: AppTextStyles.labelMd.copyWith(
-                  color:
-                      isSelected ? Colors.white : AppColors.brandTextSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionCard(Map<String, dynamic> action) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.brandSecondaryContainer.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    action['icon'],
-                    color: AppColors.brandPrimary,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.brandSecondaryContainer,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              action['categoryLabel'],
-                              style: AppTextStyles.labelSm.copyWith(
-                                color: AppColors.brandDarkAccent,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                action['infoIcon'],
-                                size: 12,
-                                color: AppColors.brandTextSecondary,
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  action['info'],
-                                  style: AppTextStyles.labelSm.copyWith(
-                                    color: AppColors.brandTextSecondary,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        action['title'],
-                        style: AppTextStyles.bodyMd.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.brandTextPrimary,
-                        ),
-                      ),
+                    if (action.description.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(
-                        action['description'],
+                        action.description,
                         style: AppTextStyles.bodySm.copyWith(
                           color: AppColors.brandTextSecondary,
                         ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 2,
                       ),
                     ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.brandSecondaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '+${action.points} pts',
+                  style: AppTextStyles.labelMd.copyWith(
+                    color: AppColors.brandDarkAccent,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.brandBackground,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    action['points'],
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.brandDarkAccent,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          if (meta.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Icon(
-                  action['footerIcon'],
-                  size: 16,
-                  color: AppColors.brandPrimary,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    action['footerInfo'],
-                    style: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.brandTextSecondary,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    context.push('/registro-acao', extra: action);
-                  },
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Registrar'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.brandSecondaryContainer,
-                    foregroundColor: AppColors.brandDarkAccent,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    minimumSize: const Size(0, 36),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    textStyle: AppTextStyles.labelMd.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
+            Wrap(spacing: 8, runSpacing: 6, children: meta),
+          ],
+          if (footer.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _IconText(
+              icon: action.footerIcon ?? Icons.eco,
+              text: footer,
+              maxLines: 3,
             ),
           ],
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child:
+                action.canRegister
+                    ? FilledButton.icon(
+                      onPressed: onRegister,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Registrar'),
+                    )
+                    : FilledButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.schedule, size: 18),
+                      label: Text(action.blockedLabel ?? 'Indisponível agora'),
+                    ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IconText extends StatelessWidget {
+  const _IconText({required this.icon, required this.text, this.maxLines = 2});
+
+  final IconData icon;
+  final String text;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: AppColors.brandTextSecondary),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            text,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.bodySm.copyWith(
+              color: AppColors.brandTextSecondary,
+            ),
+          ),
         ),
+      ],
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.brandBackground,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.brandTextSecondary),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              style: AppTextStyles.labelMd.copyWith(
+                color: AppColors.brandTextPrimary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

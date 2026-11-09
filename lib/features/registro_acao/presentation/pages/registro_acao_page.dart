@@ -1,32 +1,74 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../../core/services/action_catalog_service.dart';
+import '../../../../core/services/action_history_service.dart';
+import '../../../../core/services/api_client.dart';
+import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
-import '../../../../core/services/achievement_service.dart';
-import '../../../../core/services/action_history_service.dart' as history;
-import '../../../../core/services/api_client.dart';
-import '../../../../core/services/notification_service.dart';
-import '../../../../core/services/user_progress_service.dart';
+import '../../../../core/widgets/state_views.dart';
+import '../../../../core/widgets/weekly_cap_card.dart';
 
+/// Formulário para registrar uma ação do catálogo.
 class RegistroAcaoPage extends StatefulWidget {
-  const RegistroAcaoPage({super.key, this.action});
+  const RegistroAcaoPage({super.key, required this.actionId});
 
-  final Map<String, dynamic>? action;
+  /// Identificador da ação no catálogo (vem de `/registro-acao/:id`).
+  final int actionId;
 
   @override
   State<RegistroAcaoPage> createState() => _RegistroAcaoPageState();
 }
 
 class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
-  int _count = 2;
-  bool _submitting = false;
+  static const int _notesMaxLength = 500;
+
+  final ActionCatalogService _catalog = ActionCatalogService.instance;
+  final UserProgressService _progress = UserProgressService.instance;
+  late final Listenable _services = Listenable.merge([_catalog, _progress]);
   final TextEditingController _notesController = TextEditingController();
 
-  int get _actionId => (widget.action?['id'] as num?)?.toInt() ?? 1;
+  int _quantity = 1;
+  bool _submitting = false;
 
-  int get _basePoints => (widget.action?['pointsValue'] as num?)?.toInt() ?? 15;
+  /// Carga do catálogo pedida por esta tela.
+  bool _loadingNow = false;
 
-  int get _baseLiters => (widget.action?['liters'] as num?)?.toInt() ?? 12;
+  /// Erro de carga que o serviço não guardou em `error`.
+  String? _loadError;
+
+  /// A ação e a folga do teto no momento do envio. O registro muda os limites
+  /// e o teto; sem este retrato, a tela piscaria com os valores novos enquanto
+  /// é trocada pela confirmação.
+  ({EcoAction action, int? weeklyRoom})? _sent;
+
+  @override
+  void initState() {
+    super.initState();
+    // Depois do primeiro quadro: `load()` avisa os ouvintes na hora, e isso
+    // não pode acontecer no meio da montagem da tela.
+    if (!_catalog.isLoaded && !_catalog.loading) {
+      _loadingNow = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runLoad());
+    }
+    if (!_progress.isLoaded && !_progress.loading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Sem o resumo, a tela só não mostra o aviso do teto semanal.
+        if (mounted) _progress.load().catchError((_) {});
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant RegistroAcaoPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.actionId != oldWidget.actionId && !_submitting) {
+      _quantity = 1;
+    }
+  }
 
   @override
   void dispose() {
@@ -34,522 +76,619 @@ class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
     super.dispose();
   }
 
-  void _showPointsInfo(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: AppColors.brandSurface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Text(
-            'Como os pontos funcionam',
-            style: AppTextStyles.headlineSm.copyWith(
-              color: AppColors.brandTextPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          content: Text(
-            'Cada unidade registrada vale $_basePoints pontos e representa cerca de '
-            '$_baseLiters litros de água poupados. Ajuste a quantidade para refletir '
-            'sua ação real — o impacto é calculado automaticamente.',
-            style: AppTextStyles.bodyMd.copyWith(
-              color: AppColors.brandTextSecondary,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Entendi'),
-            ),
-          ],
-        );
-      },
-    );
+  /// Pontos que ainda cabem no teto desta semana; `null` se não há teto ou se
+  /// o resumo ainda não foi carregado.
+  int? get _weeklyRoom =>
+      _progress.isLoaded && _progress.hasWeeklyCap
+          ? _progress.weeklyRemaining
+          : null;
+
+  Future<void> _load() async {
+    if (_loadingNow) return;
+    setState(() {
+      _loadingNow = true;
+      _loadError = null;
+    });
+    await _runLoad();
   }
 
-  Future<void> _submit() async {
-    final action = widget.action ?? {};
-    final title = action['title']?.toString() ?? 'Ação sustentável';
-    final points = _basePoints * _count;
-    final liters = _baseLiters * _count;
-    final notes = _notesController.text.trim();
-
-    setState(() => _submitting = true);
+  Future<void> _runLoad() async {
+    if (!mounted) {
+      _loadingNow = false;
+      return;
+    }
     try {
-      final result = await history.ActionHistoryService.instance.submitAction(
-        actionId: _actionId,
-        quantity: _count,
+      await _catalog.load();
+    } catch (error) {
+      if (!mounted) return;
+      if (!_catalog.isLoaded) {
+        _loadError =
+            error is ApiException
+                ? error.message
+                : 'Não foi possível carregar a ação. Tente de novo.';
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingNow = false);
+      } else {
+        _loadingNow = false;
+      }
+    }
+  }
+
+  void _goBack() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/acoes');
+    }
+  }
+
+  Future<void> _submit(EcoAction action, int quantity, int? weeklyRoom) async {
+    if (_submitting) return;
+    if (!action.canRegister) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _submitting = true;
+      _quantity = quantity;
+      _sent = (action: action, weeklyRoom: weeklyRoom);
+    });
+    final notes = _notesController.text.trim();
+    try {
+      await ActionHistoryService.instance.submitAction(
+        actionId: action.id,
+        quantity: quantity,
         notes: notes.isEmpty ? null : notes,
       );
-
-      if (result['summary'] is Map<String, dynamic>) {
-        UserProgressService.instance.applySummary(
-          result['summary'] as Map<String, dynamic>,
-        );
-      }
-      if (result['achievements'] is List) {
-        AchievementService.instance.applyAchievements(
-          (result['achievements'] as List)
-              .map((item) => Achievement.fromApi(item as Map<String, dynamic>))
-              .toList(),
-        );
-      }
-      NotificationService.instance.load();
-
       if (!mounted) return;
-      context.push(
-        '/confirmacao-registro',
-        extra: {'points': points, 'liters': liters, 'action': title},
-      );
-    } on ApiException catch (error) {
+      // `_submitting` continua ligado: esta tela está saindo, e um segundo
+      // toque durante a troca não pode registrar de novo.
+      context.pushReplacement('/confirmacao-registro');
+    } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
+      setState(() {
+        _submitting = false;
+        _sent = null;
+      });
+      showErrorSnackBar(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível registrar a ação.')),
+        error,
+        fallback: 'Não foi possível registrar a ação. Tente de novo.',
       );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+      // O erro pode ser um limite já atingido: atualiza os limites da ação.
+      _catalog.load().catchError((_) {});
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final action = widget.action ?? {};
-    final title = action['title']?.toString() ?? 'Ação sustentável';
-    final description =
-        action['description']?.toString() ??
-        'Registre sua ação para gerar impacto positivo.';
-    final categoryLabel = action['categoryLabel']?.toString() ?? 'Ação';
-    final icon = action['icon'] as IconData? ?? Icons.eco;
-    final points = (_basePoints * _count);
-
     return Scaffold(
       backgroundColor: AppColors.brandBackground,
       appBar: AppBar(
         backgroundColor: AppColors.brandBackground,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
         leading: IconButton(
           tooltip: 'Voltar',
           icon: const Icon(Icons.arrow_back, color: AppColors.brandTextPrimary),
-          onPressed: () => context.pop(),
+          onPressed: _goBack,
         ),
         title: Text(
-          'Registro de Ação',
+          'Registrar ação',
           style: AppTextStyles.headlineSm.copyWith(
             color: AppColors.brandTextPrimary,
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(
-              Icons.info_outline,
-              color: AppColors.brandTextSecondary,
+      ),
+      body: SafeArea(
+        child: ListenableBuilder(
+          listenable: _services,
+          builder: (context, _) => _buildBody(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    final sent = _sent;
+    final action = sent?.action ?? _catalog.byId(widget.actionId);
+    if (action == null) {
+      if (!_catalog.isLoaded) return _buildUnloaded();
+      return EmptyStateView(
+        icon: Icons.search_off,
+        title: 'Ação não encontrada',
+        message: 'Ela pode ter saído do catálogo. Escolha outra na lista.',
+        actionLabel: 'Ver ações',
+        onAction: () => context.go('/acoes'),
+      );
+    }
+    return _buildForm(action, sent != null ? sent.weeklyRoom : _weeklyRoom);
+  }
+
+  Widget _buildUnloaded() {
+    final message = _catalog.error ?? _loadError;
+    if (message == null && (_catalog.loading || _loadingNow)) {
+      return const LoadingView(message: 'Carregando a ação…');
+    }
+    return LoadErrorView(
+      message: message ?? 'Não foi possível carregar a ação.',
+      onRetry: _load,
+    );
+  }
+
+  /// "1 de 2 hoje" ou "0 de 1 nesta semana"; `null` se a ação não tem limite.
+  String? _usageLabel(EcoAction action) {
+    final daily = action.dailyLimit;
+    final weekly = action.weeklyLimit;
+    if (weekly != null && (daily == null || action.usedThisWeek >= weekly)) {
+      return '${action.usedThisWeek} de $weekly nesta semana';
+    }
+    if (daily != null) return '${action.usedToday} de $daily hoje';
+    return null;
+  }
+
+  String _blockedMessage(EcoAction action) {
+    final daily = action.dailyLimit;
+    final weekly = action.weeklyLimit;
+    final String reason;
+    if (weekly != null && action.usedThisWeek >= weekly) {
+      reason =
+          'Limite desta semana atingido (${action.usedThisWeek} de $weekly).';
+    } else if (daily != null) {
+      reason = 'Limite de hoje atingido (${action.usedToday} de $daily).';
+    } else {
+      reason = 'Esta ação já atingiu o limite de registros.';
+    }
+    // "Volta amanhã" ou "Volta na segunda-feira".
+    final comesBack = action.blockedLabel;
+    return comesBack == null ? reason : '$reason $comesBack.';
+  }
+
+  Widget _buildForm(EcoAction action, int? weeklyRoom) {
+    final canRegister = action.canRegister;
+    final maxQuantity = math.max(1, action.maxQuantity);
+    final quantity = math.min(math.max(_quantity, 1), maxQuantity);
+    final basePoints = action.points * quantity;
+    final credited =
+        weeklyRoom == null
+            ? basePoints
+            : math.min(basePoints, math.max(weeklyRoom, 0));
+    final capped = credited < basePoints;
+    final limit = action.limitLabel;
+    final usage = _usageLabel(action);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildActionCard(action, limit: limit, usage: usage),
+          const SizedBox(height: 12),
+          const WeeklyCapCard(compact: true),
+          if (!canRegister) ...[
+            const SizedBox(height: 12),
+            _Notice(icon: Icons.schedule, text: _blockedMessage(action)),
+          ] else ...[
+            if (maxQuantity > 1) ...[
+              const SizedBox(height: 16),
+              _fieldLabel('Quantidade'),
+              const SizedBox(height: 6),
+              _buildQuantitySelector(quantity, maxQuantity),
+            ],
+            const SizedBox(height: 16),
+            _buildSummary(action, quantity, basePoints),
+            if (capped) ...[
+              const SizedBox(height: 12),
+              _Notice(
+                icon: Icons.speed_outlined,
+                text:
+                    credited > 0
+                        ? 'Por causa do teto semanal, só $credited de $basePoints pts entram agora. '
+                            'A ação continua valendo para desafios e conquistas.'
+                        : 'Teto semanal atingido: este registro não soma pontos agora, '
+                            'mas a ação continua valendo para desafios e conquistas.',
+              ),
+            ],
+            const SizedBox(height: 16),
+            _fieldLabel('Observações (opcional)'),
+            const SizedBox(height: 6),
+            _buildNotesField(),
+          ],
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            onPressed:
+                canRegister && !_submitting
+                    ? () => _submit(action, quantity, weeklyRoom)
+                    : null,
+            icon:
+                _submitting
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.brandDarkAccent,
+                      ),
+                    )
+                    : const Icon(Icons.check_circle, size: 20),
+            label: Text(_submitting ? 'Registrando…' : 'Confirmar registro'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(48, 52),
+              textStyle: AppTextStyles.labelLg,
             ),
-            onPressed: () => _showPointsInfo(context),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _submitting ? null : _goBack,
+            child: Text(canRegister ? 'Cancelar e voltar' : 'Voltar'),
           ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSurface,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandSecondaryContainer,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                icon,
-                                size: 16,
-                                color: AppColors.brandPrimary,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                categoryLabel,
-                                style: AppTextStyles.labelSm.copyWith(
-                                  color: AppColors.brandDarkAccent,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.brandBackground,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            '+$points pts',
-                            style: AppTextStyles.labelSm.copyWith(
-                              color: AppColors.brandPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      title,
-                      style: AppTextStyles.headlineSm.copyWith(
-                        color: AppColors.brandTextPrimary,
-                        fontWeight: FontWeight.w700,
+    );
+  }
+
+  Widget _fieldLabel(String text) {
+    return Text(
+      text,
+      style: AppTextStyles.labelLg.copyWith(color: AppColors.brandTextPrimary),
+    );
+  }
+
+  Widget _buildActionCard(
+    EcoAction action, {
+    required String? limit,
+    required String? usage,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.brandSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.brandBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandSecondaryContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        action.icon,
+                        size: 16,
+                        color: AppColors.brandDarkAccent,
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      description,
-                      style: AppTextStyles.bodySm.copyWith(
-                        color: AppColors.brandTextSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Data da realização',
-                style: AppTextStyles.labelMd.copyWith(
-                  color: AppColors.brandTextPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSurface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.brandBorder),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today,
-                      color: AppColors.brandPrimary,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Hoje',
-                      style: AppTextStyles.bodyMd.copyWith(
-                        color: AppColors.brandTextPrimary,
-                      ),
-                    ),
-                    const Spacer(),
-                    const Icon(
-                      Icons.edit_calendar,
-                      color: AppColors.brandTextSecondary,
-                      size: 18,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Frequência / Quantidade realizada',
-                style: AppTextStyles.labelMd.copyWith(
-                  color: AppColors.brandTextPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSurface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.brandBorder),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _count == 1
-                                ? '1 vez no dia'
-                                : '$_count vezes no dia',
-                            style: AppTextStyles.bodyMd.copyWith(
-                              color: AppColors.brandTextPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            'Manhã e noite',
-                            style: AppTextStyles.bodySm.copyWith(
-                              color: AppColors.brandTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Diminuir quantidade',
-                          onPressed:
-                              _count > 1
-                                  ? () {
-                                    setState(() => _count--);
-                                  }
-                                  : null,
-                          icon: const Icon(Icons.remove),
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppColors.brandBackground,
-                            foregroundColor: AppColors.brandTextPrimary,
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          action.categoryLabel,
+                          style: AppTextStyles.labelMd.copyWith(
+                            color: AppColors.brandDarkAccent,
                           ),
                         ),
-                        SizedBox(
-                          width: 24,
-                          child: Text(
-                            '$_count',
-                            textAlign: TextAlign.center,
-                            style: AppTextStyles.bodyMd.copyWith(
-                              color: AppColors.brandTextPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Aumentar quantidade',
-                          onPressed:
-                              _count < 10
-                                  ? () {
-                                    setState(() => _count++);
-                                  }
-                                  : null,
-                          icon: const Icon(Icons.add),
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppColors.brandBackground,
-                            foregroundColor: AppColors.brandTextPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Observações ou aprendizado',
-                style: AppTextStyles.labelMd.copyWith(
-                  color: AppColors.brandTextPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                decoration: BoxDecoration(
-                  color: AppColors.brandSurface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.brandBorder),
-                ),
-                child: TextField(
-                  controller: _notesController,
-                  maxLines: 4,
-                  maxLength: 240,
-                  decoration: InputDecoration(
-                    hintText:
-                        'Ex: Incentivei também minha família a adotar essa prática hoje...',
-                    hintStyle: AppTextStyles.bodySm.copyWith(
-                      color: AppColors.brandTextSecondary.withOpacity(0.7),
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.all(12),
-                    counterStyle: AppTextStyles.labelSm.copyWith(
-                      color: AppColors.brandTextSecondary,
-                    ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Foto do momento',
-                style: AppTextStyles.labelMd.copyWith(
-                  color: AppColors.brandTextPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSurface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.brandBorder),
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandSecondaryContainer,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.add_a_photo,
-                        color: AppColors.brandPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Adicionar foto comprobatória ou inspiradora',
-                      style: AppTextStyles.bodyMd.copyWith(
-                        color: AppColors.brandTextPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Formatos JPG, PNG até 5MB',
-                      style: AppTextStyles.bodySm.copyWith(
-                        color: AppColors.brandTextSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSecondaryContainer.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandSurface,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.eco,
-                        color: AppColors.brandPrimary,
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Impacto estimado: ~${_baseLiters * _count} Litros poupados hoje',
-                        style: AppTextStyles.bodyMd.copyWith(
-                          color: AppColors.brandTextPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _submitting ? null : _submit,
-                  icon:
-                      _submitting
-                          ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                          : const Icon(Icons.check_circle, size: 20),
-                  label: Text('Confirmar registro (+$points pts)'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.brandPrimary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    textStyle: AppTextStyles.labelLg.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
                   ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: TextButton(
-                  onPressed: () => context.pop(),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandBackground,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   child: Text(
-                    'Cancelar e voltar',
+                    '+${action.points} pts por registro',
                     style: AppTextStyles.labelMd.copyWith(
-                      color: AppColors.brandTextSecondary,
+                      color: AppColors.brandDarkAccent,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            action.title,
+            style: AppTextStyles.headlineSm.copyWith(
+              color: AppColors.brandTextPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (action.description.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              action.description,
+              style: AppTextStyles.bodyMd.copyWith(
+                color: AppColors.brandTextSecondary,
               ),
-              const SizedBox(height: 20),
-            ],
+            ),
+          ],
+          if (limit != null || usage != null) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                if (limit != null)
+                  _MetaChip(icon: Icons.event_repeat, label: limit),
+                if (usage != null) _MetaChip(icon: Icons.task_alt, label: usage),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuantitySelector(int quantity, int maxQuantity) {
+    final buttonStyle = IconButton.styleFrom(
+      backgroundColor: AppColors.brandBackground,
+      foregroundColor: AppColors.brandTextPrimary,
+      minimumSize: const Size(48, 48),
+    );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: AppColors.brandSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.brandBorder),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    quantity == 1 ? '1 vez' : '$quantity vezes',
+                    style: AppTextStyles.bodyMd.copyWith(
+                      color: AppColors.brandTextPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  'Até $maxQuantity neste registro',
+                  style: AppTextStyles.bodySm.copyWith(
+                    color: AppColors.brandTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Diminuir quantidade',
+            onPressed:
+                quantity > 1 && !_submitting
+                    ? () => setState(() => _quantity = quantity - 1)
+                    : null,
+            icon: const Icon(Icons.remove),
+            style: buttonStyle,
+          ),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 32),
+            child: ExcludeSemantics(
+              child: Text(
+                '$quantity',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyLg.copyWith(
+                  color: AppColors.brandTextPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Aumentar quantidade',
+            onPressed:
+                quantity < maxQuantity && !_submitting
+                    ? () => setState(() => _quantity = quantity + 1)
+                    : null,
+            icon: const Icon(Icons.add),
+            style: buttonStyle,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummary(EcoAction action, int quantity, int basePoints) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.brandSecondaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          _SummaryRow(
+            icon: Icons.eco,
+            label:
+                quantity > 1
+                    ? 'Este registro vale (${action.points} × $quantity)'
+                    : 'Este registro vale',
+            value: '+$basePoints pts',
+          ),
+          if (action.liters > 0) ...[
+            const SizedBox(height: 8),
+            _SummaryRow(
+              icon: Icons.water_drop_outlined,
+              label: 'Água poupada (estimativa)',
+              value: '${action.liters * quantity} L',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotesField() {
+    OutlineInputBorder border(Color color, [double width = 1]) {
+      return OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: color, width: width),
+      );
+    }
+
+    return TextField(
+      controller: _notesController,
+      enabled: !_submitting,
+      minLines: 3,
+      maxLines: 5,
+      maxLength: _notesMaxLength,
+      textCapitalization: TextCapitalization.sentences,
+      style: AppTextStyles.bodyMd.copyWith(color: AppColors.brandTextPrimary),
+      decoration: InputDecoration(
+        hintText: 'Conte como foi, se quiser.',
+        hintStyle: AppTextStyles.bodyMd.copyWith(
+          color: AppColors.brandTextSecondary,
+        ),
+        filled: true,
+        fillColor: AppColors.brandSurface,
+        contentPadding: const EdgeInsets.all(12),
+        counterStyle: AppTextStyles.bodySm.copyWith(
+          color: AppColors.brandTextSecondary,
+        ),
+        border: border(AppColors.brandBorder),
+        enabledBorder: border(AppColors.brandBorder),
+        disabledBorder: border(AppColors.brandBorder),
+        focusedBorder: border(AppColors.brandDarkAccent, 1.5),
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: AppColors.brandDarkAccent),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: AppTextStyles.bodyMd.copyWith(
+              color: AppColors.brandTextPrimary,
+            ),
           ),
         ),
+        const SizedBox(width: 8),
+        Text(
+          value,
+          style: AppTextStyles.labelLg.copyWith(
+            color: AppColors.brandDarkAccent,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Aviso em destaque (limite da ação ou teto semanal).
+class _Notice extends StatelessWidget {
+  const _Notice({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.brandTertiaryAccent.withValues(alpha: 0.25),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppColors.brandTertiaryAccent.withValues(alpha: 0.7),
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: AppColors.tertiary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                text,
+                style: AppTextStyles.bodyMd.copyWith(
+                  color: AppColors.brandTextPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.brandBackground,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.brandTextSecondary),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              style: AppTextStyles.labelMd.copyWith(
+                color: AppColors.brandTextPrimary,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/services/achievement_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/state_views.dart';
 
 enum _AchievementFilter { all, unlocked, progress }
 
+/// Conquistas (selos) do usuário e o progresso de cada uma.
 class ConquistasPage extends StatefulWidget {
   const ConquistasPage({super.key});
 
@@ -15,178 +18,166 @@ class ConquistasPage extends StatefulWidget {
 }
 
 class _ConquistasPageState extends State<ConquistasPage> {
-  List<Achievement> get _achievements =>
-      AchievementService.instance.achievements;
+  final AchievementService _service = AchievementService.instance;
+  final UserProgressService _progress = UserProgressService.instance;
+  late final Listenable _listenable = Listenable.merge([_service, _progress]);
 
   _AchievementFilter _filter = _AchievementFilter.all;
+  bool _reloading = false;
 
-  List<Achievement> get _unlocked =>
-      _achievements.where((achievement) => achievement.isUnlocked).toList();
+  /// Falha de carga que o serviço não registrou em `error`.
+  String? _loadFailure;
 
-  List<Achievement> get _inProgress =>
-      _achievements.where((achievement) => !achievement.isUnlocked).toList();
+  @override
+  void initState() {
+    super.initState();
+    if (_service.isLoaded) return;
+    // `load()` avisa os ouvintes na hora. Chamá-lo depois do primeiro quadro
+    // evita avisar as outras telas no meio da montagem desta.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_service.isLoaded) _reload();
+    });
+  }
+
+  Future<void> _reload() async {
+    if (_reloading) return;
+    _reloading = true;
+    if (_loadFailure != null) setState(() => _loadFailure = null);
+    try {
+      await Future.wait([
+        _service.load(),
+        // O nível é complementar: se falhar, a etiqueta só não aparece.
+        _progress.load().catchError((_) {}),
+      ]);
+    } catch (error) {
+      if (!mounted) return;
+      if (_service.isLoaded) {
+        showErrorSnackBar(
+          context,
+          error,
+          fallback: 'Não foi possível atualizar as conquistas.',
+        );
+      } else if (_service.error == null) {
+        setState(
+          () =>
+              _loadFailure =
+                  'Não foi possível carregar as conquistas. Tente de novo.',
+        );
+      }
+    } finally {
+      _reloading = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: UserProgressService.instance,
-      builder: (context, _) {
-        final unlocked = _unlocked;
-        final inProgress = _inProgress;
-        final showUnlocked =
-            _filter == _AchievementFilter.all ||
-            _filter == _AchievementFilter.unlocked;
-        final showProgress =
-            _filter == _AchievementFilter.all ||
-            _filter == _AchievementFilter.progress;
-
-        return Scaffold(
-          backgroundColor: AppColors.brandBackground,
-          appBar: AppBar(
-            backgroundColor: AppColors.brandBackground,
-            elevation: 0,
-            leading: IconButton(
-              tooltip: 'Voltar',
-              icon: const Icon(
-                Icons.arrow_back,
-                color: AppColors.brandTextPrimary,
-              ),
-              onPressed: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/desafios');
-                }
-              },
-            ),
-            title: Text(
-              'Minhas Conquistas',
-              style: AppTextStyles.headlineSm.copyWith(
-                color: AppColors.brandTextPrimary,
-              ),
-            ),
-            actions: [
-              Container(
-                margin: const EdgeInsets.only(right: 12),
-                width: 32,
-                height: 32,
-                decoration: const BoxDecoration(
-                  color: AppColors.brandPrimary,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.person, color: Colors.white, size: 18),
-              ),
-            ],
+    return Scaffold(
+      backgroundColor: AppColors.brandBackground,
+      appBar: AppBar(
+        backgroundColor: AppColors.brandBackground,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: const Icon(Icons.arrow_back, color: AppColors.brandTextPrimary),
+          onPressed:
+              () => context.canPop() ? context.pop() : context.go('/perfil'),
+        ),
+        title: Text(
+          'Minhas Conquistas',
+          style: AppTextStyles.headlineSm.copyWith(
+            color: AppColors.brandTextPrimary,
           ),
-          body: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildJourneyCard(unlocked.length),
-                  const SizedBox(height: 16),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _filterChip(
-                          label: 'Todas (${_achievements.length})',
-                          selected: _filter == _AchievementFilter.all,
-                          onTap:
-                              () => setState(
-                                () => _filter = _AchievementFilter.all,
-                              ),
-                        ),
-                        const SizedBox(width: 8),
-                        _filterChip(
-                          label: 'Desbloqueadas (${unlocked.length})',
-                          selected: _filter == _AchievementFilter.unlocked,
-                          onTap:
-                              () => setState(
-                                () => _filter = _AchievementFilter.unlocked,
-                              ),
-                        ),
-                        const SizedBox(width: 8),
-                        _filterChip(
-                          label: 'Em progresso (${inProgress.length})',
-                          selected: _filter == _AchievementFilter.progress,
-                          onTap:
-                              () => setState(
-                                () => _filter = _AchievementFilter.progress,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  if (showUnlocked) ...[
-                    _sectionTitle(
-                      title: 'Desbloqueadas',
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.verified,
-                            size: 16,
-                            color: AppColors.brandPrimary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${unlocked.length} selos ativos',
-                            style: AppTextStyles.labelSm.copyWith(
-                              color: AppColors.brandTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    for (int i = 0; i < unlocked.length; i++) ...[
-                      _unlockedCard(unlocked[i]),
-                      if (i < unlocked.length - 1) const SizedBox(height: 10),
-                    ],
-                    const SizedBox(height: 18),
-                  ],
-                  if (showProgress) ...[
-                    _sectionTitle(
-                      title: 'Próximos Passos',
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.hourglass_top,
-                            size: 16,
-                            color: AppColors.brandTextSecondary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${inProgress.length} em andamento',
-                            style: AppTextStyles.labelSm.copyWith(
-                              color: AppColors.brandTextSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    for (int i = 0; i < inProgress.length; i++) ...[
-                      _inProgressCard(inProgress[i]),
-                      if (i < inProgress.length - 1) const SizedBox(height: 10),
-                    ],
-                  ],
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+        ),
+      ),
+      body: SafeArea(
+        child: AnimatedBuilder(
+          animation: _listenable,
+          builder: (context, _) => _buildBody(),
+        ),
+      ),
     );
   }
 
-  Widget _buildJourneyCard(int unlockedCount) {
-    final percent = unlockedCount / _achievements.length;
+  Widget _buildBody() {
+    if (!_service.isLoaded) {
+      final error = _service.error ?? _loadFailure;
+      if (error == null || _service.loading) {
+        return const LoadingView(message: 'Carregando conquistas…');
+      }
+      return LoadErrorView(message: error, onRetry: _reload);
+    }
+
+    final total = _service.achievements.length;
+    final unlocked = _service.unlocked;
+    final inProgress = _service.inProgress;
+    final showUnlocked =
+        _filter != _AchievementFilter.progress && unlocked.isNotEmpty;
+    final showProgress =
+        _filter != _AchievementFilter.unlocked && inProgress.isNotEmpty;
+
+    return RefreshIndicator(
+      onRefresh: _reload,
+      color: AppColors.brandDarkAccent,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _journeyCard(unlocked: unlocked.length, total: total),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                _filterChip('Todas ($total)', _AchievementFilter.all),
+                _filterChip(
+                  'Desbloqueadas (${unlocked.length})',
+                  _AchievementFilter.unlocked,
+                ),
+                _filterChip(
+                  'Em progresso (${inProgress.length})',
+                  _AchievementFilter.progress,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (!showUnlocked && !showProgress)
+              _emptyState(noneAtAll: total == 0),
+            if (showUnlocked) ...[
+              _sectionTitle(
+                'Desbloqueadas',
+                unlocked.length == 1 ? '1 selo' : '${unlocked.length} selos',
+              ),
+              const SizedBox(height: 10),
+              for (final achievement in unlocked) ...[
+                _unlockedCard(achievement),
+                const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 8),
+            ],
+            if (showProgress) ...[
+              _sectionTitle(
+                'Próximos passos',
+                '${inProgress.length} em andamento',
+              ),
+              const SizedBox(height: 10),
+              for (final achievement in inProgress) ...[
+                _inProgressCard(achievement),
+                const SizedBox(height: 10),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _journeyCard({required int unlocked, required int total}) {
+    // Sem conquistas na lista não há o que dividir.
+    final percent = total == 0 ? 0.0 : unlocked / total;
+    final level = _progress.isLoaded ? _progress.level : '';
+    final percentLabel = '${(percent * 100).round()}%';
 
     return Container(
       width: double.infinity,
@@ -195,52 +186,48 @@ class _ConquistasPageState extends State<ConquistasPage> {
         gradient: LinearGradient(
           colors: [
             AppColors.brandSurface,
-            AppColors.brandSecondaryContainer.withOpacity(0.6),
+            AppColors.brandSecondaryContainer.withValues(alpha: 0.6),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: AppColors.brandBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
-                child: Text(
-                  'SUA JORNADA SUSTENTÁVEL',
-                  style: AppTextStyles.labelSm.copyWith(
-                    color: AppColors.brandDarkAccent,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                  ),
+              Text(
+                'SUA JORNADA SUSTENTÁVEL',
+                style: AppTextStyles.labelMd.copyWith(
+                  color: AppColors.brandDarkAccent,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.brandSurface,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'Nível Semente',
-                  style: AppTextStyles.labelSm.copyWith(
-                    color: AppColors.brandDarkAccent,
-                    fontWeight: FontWeight.w600,
+              if (level.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.brandSurface,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: AppColors.brandBorder),
+                  ),
+                  child: Text(
+                    level,
+                    style: AppTextStyles.labelMd.copyWith(
+                      color: AppColors.brandDarkAccent,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -249,15 +236,18 @@ class _ConquistasPageState extends State<ConquistasPage> {
             children: [
               Expanded(
                 child: Text(
-                  '$unlockedCount de ${_achievements.length} conquistas',
+                  total == 0
+                      ? 'Nenhuma conquista'
+                      : '$unlocked de $total ${total == 1 ? 'conquista' : 'conquistas'}',
                   style: AppTextStyles.headlineMd.copyWith(
                     color: AppColors.brandTextPrimary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
-                '${(percent * 100).round()}%',
+                percentLabel,
                 style: AppTextStyles.bodyLg.copyWith(
                   color: AppColors.brandDarkAccent,
                   fontWeight: FontWeight.w700,
@@ -275,6 +265,8 @@ class _ConquistasPageState extends State<ConquistasPage> {
               valueColor: const AlwaysStoppedAnimation<Color>(
                 AppColors.brandPrimary,
               ),
+              semanticsLabel: 'Conquistas desbloqueadas',
+              semanticsValue: percentLabel,
             ),
           ),
           const SizedBox(height: 10),
@@ -282,21 +274,22 @@ class _ConquistasPageState extends State<ConquistasPage> {
             width: double.infinity,
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.brandSurface.withOpacity(0.7),
+              color: AppColors.brandSurface.withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Icon(
-                  Icons.auto_awesome,
+                  Icons.info_outline,
                   size: 16,
-                  color: AppColors.brandPrimary,
+                  color: AppColors.brandDarkAccent,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Cada pequeno hábito fortalece sua comunidade e inspira quem está ao redor.',
+                    'O bônus de cada conquista é creditado uma única vez, ao '
+                    'desbloquear, e não entra no teto semanal de pontos.',
                     style: AppTextStyles.bodySm.copyWith(
                       color: AppColors.brandTextSecondary,
                     ),
@@ -310,51 +303,56 @@ class _ConquistasPageState extends State<ConquistasPage> {
     );
   }
 
-  Widget _filterChip({
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return Semantics(
-      button: true,
+  Widget _filterChip(String label, _AchievementFilter filter) {
+    final selected = _filter == filter;
+    return ChoiceChip(
+      label: Text(label),
       selected: selected,
-      label: label,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color:
-                selected
-                    ? AppColors.brandSecondaryContainer
-                    : AppColors.brandSurface,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color:
-                  selected
-                      ? AppColors.brandSecondaryContainer
-                      : AppColors.brandBorder,
-            ),
-          ),
-          child: Text(
-            label,
-            style: AppTextStyles.labelMd.copyWith(
-              color:
-                  selected
-                      ? AppColors.brandDarkAccent
-                      : AppColors.brandTextSecondary,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-            ),
-          ),
-        ),
+      showCheckmark: false,
+      // Garante 48 px de área de toque em qualquer plataforma.
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      visualDensity: VisualDensity.standard,
+      onSelected: (_) => setState(() => _filter = filter),
+      backgroundColor: AppColors.brandSurface,
+      selectedColor: AppColors.brandSecondaryContainer,
+      side: BorderSide(
+        color: selected ? AppColors.brandDarkAccent : AppColors.brandBorder,
+      ),
+      labelStyle: AppTextStyles.labelMd.copyWith(
+        color:
+            selected ? AppColors.brandDarkAccent : AppColors.brandTextSecondary,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
       ),
     );
   }
 
-  Widget _sectionTitle({required String title, required Widget trailing}) {
+  Widget _emptyState({required bool noneAtAll}) {
+    if (noneAtAll) {
+      return const EmptyStateView(
+        icon: Icons.military_tech_outlined,
+        title: 'Nenhuma conquista por aqui',
+        message: 'Puxe a tela para baixo para atualizar.',
+      );
+    }
+    if (_filter == _AchievementFilter.unlocked) {
+      return EmptyStateView(
+        icon: Icons.lock_outline,
+        title: 'Nenhuma conquista desbloqueada ainda',
+        message: 'Registre ações para desbloquear a primeira.',
+        actionLabel: 'Ver em progresso',
+        onAction: () => setState(() => _filter = _AchievementFilter.progress),
+      );
+    }
+    return const EmptyStateView(
+      icon: Icons.verified_outlined,
+      title: 'Nada em progresso',
+      message: 'Você já desbloqueou todas as conquistas.',
+    );
+  }
+
+  Widget _sectionTitle(String title, String trailing) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
           child: Text(
@@ -365,50 +363,50 @@ class _ConquistasPageState extends State<ConquistasPage> {
             ),
           ),
         ),
-        trailing,
+        const SizedBox(width: 8),
+        Text(
+          trailing,
+          style: AppTextStyles.labelMd.copyWith(
+            color: AppColors.brandTextSecondary,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _unlockedCard(Achievement achievement) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+  Widget _card({required Widget child}) {
+    return MergeSemantics(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.brandSurface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.brandBorder),
+        ),
+        child: child,
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _badgeIcon(achievement.icon, unlocked: true),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        achievement.title,
-                        style: AppTextStyles.bodyMd.copyWith(
-                          color: AppColors.brandTextPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    _pointsChip(achievement.points),
-                  ],
+    );
+  }
+
+  Widget _header(Achievement achievement, {required List<Widget> details}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _badgeIcon(achievement.icon, unlocked: achievement.isUnlocked),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                achievement.title,
+                style: AppTextStyles.bodyMd.copyWith(
+                  color: AppColors.brandTextPrimary,
+                  fontWeight: FontWeight.w700,
                 ),
+              ),
+              if (achievement.description.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Text(
                   achievement.description,
@@ -416,28 +414,51 @@ class _ConquistasPageState extends State<ConquistasPage> {
                     color: AppColors.brandTextSecondary,
                   ),
                 ),
+              ],
+              if (details.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today,
-                      size: 12,
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: details,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _unlockedCard(Achievement achievement) {
+    final unlockedOn = achievement.unlockedOn;
+    return _card(
+      child: _header(
+        achievement,
+        details: [
+          if (achievement.points > 0) _pointsChip(achievement.points),
+          // Só mostra a data quando a API informou uma.
+          if (unlockedOn != null && unlockedOn.isNotEmpty)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.calendar_today,
+                  size: 14,
+                  color: AppColors.brandTextSecondary,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    'Concluído em $unlockedOn',
+                    style: AppTextStyles.bodySm.copyWith(
                       color: AppColors.brandTextSecondary,
                     ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        'Concluído em ${achievement.unlockedOn ?? 'Hoje'}',
-                        style: AppTextStyles.labelSm.copyWith(
-                          color: AppColors.brandTextSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),
-          ),
         ],
       ),
     );
@@ -445,58 +466,18 @@ class _ConquistasPageState extends State<ConquistasPage> {
 
   Widget _inProgressCard(Achievement achievement) {
     final progress = achievement.progress;
+    final percentLabel = '${(progress * 100).round()}%';
+    final missing = achievement.missing;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _badgeIcon(achievement.icon, unlocked: false),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            achievement.title,
-                            style: AppTextStyles.bodyMd.copyWith(
-                              color: AppColors.brandTextPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        _pointsChip(achievement.points, muted: true),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      achievement.description,
-                      style: AppTextStyles.bodySm.copyWith(
-                        color: AppColors.brandTextSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          _header(
+            achievement,
+            details: [
+              if (achievement.points > 0)
+                _pointsChip(achievement.points, muted: true),
             ],
           ),
           const SizedBox(height: 10),
@@ -514,17 +495,18 @@ class _ConquistasPageState extends State<ConquistasPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        achievement.progressLabel ?? '',
-                        style: AppTextStyles.labelSm.copyWith(
+                        achievement.progressLabel ??
+                            '${achievement.current} de ${achievement.target}',
+                        style: AppTextStyles.labelMd.copyWith(
                           color: AppColors.brandTextPrimary,
-                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
-                      '${(progress * 100).round()}%',
-                      style: AppTextStyles.labelSm.copyWith(
-                        color: AppColors.brandPrimary,
+                      percentLabel,
+                      style: AppTextStyles.labelMd.copyWith(
+                        color: AppColors.brandDarkAccent,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -535,18 +517,20 @@ class _ConquistasPageState extends State<ConquistasPage> {
                   borderRadius: BorderRadius.circular(999),
                   child: LinearProgressIndicator(
                     value: progress,
-                    minHeight: 6,
+                    minHeight: 8,
                     backgroundColor: AppColors.brandBorder,
                     valueColor: const AlwaysStoppedAnimation<Color>(
                       AppColors.brandPrimary,
                     ),
+                    semanticsLabel: 'Progresso de ${achievement.title}',
+                    semanticsValue: percentLabel,
                   ),
                 ),
-                if (achievement.missing != null) ...[
+                if (missing != null && missing.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
-                    achievement.missing!,
-                    style: AppTextStyles.labelSm.copyWith(
+                    missing,
+                    style: AppTextStyles.bodySm.copyWith(
                       color: AppColors.brandTextSecondary,
                     ),
                   ),
@@ -560,62 +544,64 @@ class _ConquistasPageState extends State<ConquistasPage> {
   }
 
   Widget _badgeIcon(IconData icon, {required bool unlocked}) {
-    return SizedBox(
-      width: 52,
-      height: 52,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color:
-                  unlocked
-                      ? AppColors.brandSecondaryContainer
-                      : AppColors.brandBackground,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color:
-                    unlocked
-                        ? AppColors.brandPrimary.withOpacity(0.2)
-                        : AppColors.brandBorder,
-              ),
-            ),
-            child: Icon(
-              icon,
-              size: 24,
-              color:
-                  unlocked
-                      ? AppColors.brandDarkAccent
-                      : AppColors.brandTextSecondary,
-            ),
-          ),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              width: 20,
-              height: 20,
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: 52,
+        height: 52,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
                 color:
                     unlocked
-                        ? AppColors.brandTertiaryAccent
-                        : AppColors.brandBorder,
+                        ? AppColors.brandSecondaryContainer
+                        : AppColors.brandBackground,
                 shape: BoxShape.circle,
-                border: Border.all(color: AppColors.brandSurface, width: 2),
+                border: Border.all(
+                  color:
+                      unlocked
+                          ? AppColors.brandPrimary.withValues(alpha: 0.2)
+                          : AppColors.brandBorder,
+                ),
               ),
               child: Icon(
-                unlocked ? Icons.check : Icons.hourglass_top,
-                size: 11,
+                icon,
+                size: 24,
                 color:
                     unlocked
                         ? AppColors.brandDarkAccent
                         : AppColors.brandTextSecondary,
               ),
             ),
-          ),
-        ],
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color:
+                      unlocked
+                          ? AppColors.brandTertiaryAccent
+                          : AppColors.brandBorder,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.brandSurface, width: 2),
+                ),
+                child: Icon(
+                  unlocked ? Icons.check : Icons.hourglass_top,
+                  size: 12,
+                  color:
+                      unlocked
+                          ? AppColors.brandDarkAccent
+                          : AppColors.brandTextSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -631,9 +617,10 @@ class _ConquistasPageState extends State<ConquistasPage> {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        '+$points pts',
-        style: AppTextStyles.labelSm.copyWith(
-          color: muted ? AppColors.brandTextSecondary : AppColors.brandPrimary,
+        '+$points pts de bônus',
+        style: AppTextStyles.labelMd.copyWith(
+          color:
+              muted ? AppColors.brandTextSecondary : AppColors.brandDarkAccent,
           fontWeight: FontWeight.w700,
         ),
       ),

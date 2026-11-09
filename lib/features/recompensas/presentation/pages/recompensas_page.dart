@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../../core/services/api_client.dart';
-import '../../../../core/services/auth_service.dart';
+import '../../../../core/local/economy.dart';
 import '../../../../core/services/reward_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_page_header.dart';
+import '../../../../core/widgets/state_views.dart';
+import '../widgets/coupon_dialog.dart';
+import '../widgets/coupon_tile.dart';
+import '../widgets/reward_card.dart';
+import '../widgets/reward_details_sheet.dart';
+import '../widgets/reward_ui.dart';
 
-/// Vitrine de recompensas criadas pelas empresas parceiras.
+/// Vitrine de recompensas das empresas parceiras e cupons da pessoa.
 ///
-/// A pessoa troca os pontos acumulados por produtos, serviços, descontos e
-/// itens de jogos. O resgate é registrado no backend e gera um código único.
+/// Os pontos são trocados por cupons. Cada cupom tem um código, uma validade
+/// e é conferido no balcão com o código do parceiro.
 class RecompensasPage extends StatefulWidget {
   const RecompensasPage({super.key});
 
@@ -21,232 +25,308 @@ class RecompensasPage extends StatefulWidget {
 }
 
 class _RecompensasPageState extends State<RecompensasPage> {
+  static const String _loadFallback =
+      'Não foi possível carregar as recompensas.';
+
   final RewardService _service = RewardService.instance;
-  final TextEditingController _searchController = TextEditingController();
+  final UserProgressService _progress = UserProgressService.instance;
+  late final Listenable _changes = Listenable.merge([_service, _progress]);
+  late final TextEditingController _searchController = TextEditingController(
+    text: _service.search,
+  );
+  final GlobalKey _couponsKey = GlobalKey();
+
+  CouponStatus _couponTab = CouponStatus.active;
+  bool _loadFailed = false;
+  bool _redeeming = false;
 
   @override
   void initState() {
     super.initState();
-    _service.load().catchError((_) {});
+    _service.addListener(_syncSearchField);
+    // O serviço avisa quem escuta na mesma hora. Esperar o fim deste quadro
+    // evita "setState durante o build" nas telas que continuam montadas por
+    // baixo desta.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _service.clearFilters();
+      _reload();
+    });
   }
 
   @override
   void dispose() {
+    _service.removeListener(_syncSearchField);
     _searchController.dispose();
     super.dispose();
   }
 
+  /// Mantém o campo de busca igual à busca guardada no serviço.
+  void _syncSearchField() {
+    final search = _service.search;
+    if (_searchController.text.trim() == search) return;
+    _searchController.value = TextEditingValue(
+      text: search,
+      selection: TextSelection.collapsed(offset: search.length),
+    );
+  }
+
+  Future<void> _reload() async {
+    try {
+      await _service.load();
+      if (mounted && _loadFailed) setState(() => _loadFailed = false);
+    } catch (_) {
+      // O serviço guarda a mensagem em `error`; `_loadFailed` cobre as
+      // falhas que chegam sem mensagem.
+      if (mounted) setState(() => _loadFailed = true);
+    }
+  }
+
+  Future<void> _openReward(Reward reward) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final confirmed = await showRewardDetailsSheet(context, reward);
+    if (!mounted || confirmed != true) return;
+    await _redeem(reward);
+  }
+
+  /// Faz o resgate já confirmado na folha de detalhes e mostra o cupom.
+  Future<void> _redeem(Reward reward) async {
+    if (_redeeming) return;
+    _redeeming = true;
+    try {
+      final coupon = await _service.redeem(reward);
+      if (!mounted) return;
+      setState(() => _couponTab = CouponStatus.active);
+      await showCouponDialog(context, coupon, justRedeemed: true);
+    } catch (error) {
+      if (!mounted) return;
+      showErrorSnackBar(
+        context,
+        error,
+        fallback: 'Não foi possível concluir o resgate. Tente de novo.',
+      );
+    } finally {
+      _redeeming = false;
+    }
+  }
+
+  void _openCoupon(RewardRedemption coupon) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    showCouponDialog(context, coupon);
+  }
+
+  void _scrollToCoupons() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _couponTab = CouponStatus.active);
+    final target = _couponsKey.currentContext;
+    if (target == null) return;
+    Scrollable.ensureVisible(
+      target,
+      duration:
+          MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final auth = AuthService.instance;
     return Scaffold(
       backgroundColor: AppColors.brandBackground,
-      appBar: AppPageHeader(
+      appBar: const AppPageHeader(
         pageIcon: Icons.redeem,
         title: 'Recompensas',
-        profileInitials: auth.userInitials,
-        onProfilePressed: () => context.go('/perfil'),
+        showBack: true,
       ),
-      body: AnimatedBuilder(
-        animation: Listenable.merge([_service, UserProgressService.instance]),
-        builder: (context, _) {
-          final progress = UserProgressService.instance;
-          final rewards = _service.rewards;
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 96),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: _balanceCard(progress),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: TextField(
-                      controller: _searchController,
-                      textInputAction: TextInputAction.search,
-                      onChanged: _service.setSearch,
-                      decoration: InputDecoration(
-                        hintText: 'Buscar recompensa ou parceiro',
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon:
-                            _service.search.isEmpty
-                                ? null
-                                : IconButton(
-                                  tooltip: 'Limpar busca',
-                                  icon: const Icon(Icons.close),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    _service.setSearch('');
-                                  },
-                                ),
-                        filled: true,
-                        fillColor: AppColors.brandSurface,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                            color: AppColors.brandBorder,
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                            color: AppColors.brandBorder,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 40,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: RewardCategoryFilter.values.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, index) {
-                        final filter = RewardCategoryFilter.values[index];
-                        final selected = _service.category == filter;
-                        return ChoiceChip(
-                          label: Text(filter.label),
-                          selected: selected,
-                          onSelected: (_) => _service.setCategory(filter),
-                          selectedColor: AppColors.brandSecondaryContainer,
-                          backgroundColor: AppColors.brandSurface,
-                          side: BorderSide(
-                            color:
-                                selected
-                                    ? AppColors.brandPrimary
-                                    : AppColors.brandBorder,
-                          ),
-                          labelStyle: AppTextStyles.labelMd.copyWith(
-                            color:
-                                selected
-                                    ? AppColors.brandDarkAccent
-                                    : AppColors.brandTextSecondary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 8, 4),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Recompensas dos parceiros',
-                                style: AppTextStyles.headlineSm.copyWith(
-                                  color: AppColors.brandTextPrimary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              Text(
-                                '${rewards.length} disponíveis para resgate',
-                                style: AppTextStyles.labelSm.copyWith(
-                                  color: AppColors.brandTextSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        PopupMenuButton<RewardSort>(
-                          tooltip: 'Ordenar recompensas',
-                          initialValue: _service.sort,
-                          onSelected: _service.setSort,
-                          itemBuilder:
-                              (context) =>
-                                  RewardSort.values
-                                      .map(
-                                        (sort) => PopupMenuItem<RewardSort>(
-                                          value: sort,
-                                          child: Text(sort.label),
-                                        ),
-                                      )
-                                      .toList(),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 6,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.swap_vert,
-                                  size: 18,
-                                  color: AppColors.brandPrimary,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _service.sort.label,
-                                  style: AppTextStyles.labelMd.copyWith(
-                                    color: AppColors.brandPrimary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_service.busy)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: LinearProgressIndicator(minHeight: 3),
-                    ),
-                  if (rewards.isEmpty)
-                    _emptyState()
-                  else
-                    ...rewards.map(
-                      (reward) => Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                        child: _rewardCard(reward, progress),
-                      ),
-                    ),
-                  if (_service.redemptions.isNotEmpty) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 4),
-                      child: Text(
-                        'Meus resgates',
-                        style: AppTextStyles.headlineSm.copyWith(
-                          color: AppColors.brandTextPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    ..._service.redemptions.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                        child: _redemptionCard(item),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          );
-        },
+      body: SafeArea(
+        child: AnimatedBuilder(
+          animation: _changes,
+          builder: (context, _) => _body(),
+        ),
       ),
     );
   }
 
-  Widget _balanceCard(UserProgressService progress) {
+  Widget _body() {
+    final failure =
+        _service.loading
+            ? null
+            : _service.error ?? (_loadFailed ? _loadFallback : null);
+
+    if (!_service.isLoaded) {
+      if (failure != null) {
+        return LoadErrorView(message: failure, onRetry: _reload);
+      }
+      return const LoadingView(message: 'Carregando recompensas…');
+    }
+
+    final balance = _progress.isLoaded ? _progress.points : null;
+    final rewards = _service.rewards;
+    final working = _service.loading || _service.busy;
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 3,
+          child:
+              working
+                  ? const LinearProgressIndicator(
+                    minHeight: 3,
+                    backgroundColor: AppColors.brandSecondaryContainer,
+                    semanticsLabel: 'Atualizando recompensas',
+                  )
+                  : null,
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            color: AppColors.brandDarkAccent,
+            onRefresh: _reload,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.only(top: 9, bottom: 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (failure != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: _refreshError(failure),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _balanceCard(),
+                  ),
+                  if (_service.activeCoupons.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      child: _couponsShortcut(_service.activeCoupons.length),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: _searchField(),
+                  ),
+                  const SizedBox(height: 8),
+                  _chipRow([
+                    for (final filter in RewardCategoryFilter.values)
+                      _choiceChip(
+                        label: filter.label,
+                        selected: _service.category == filter,
+                        onSelected: () => _service.setCategory(filter),
+                      ),
+                  ]),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: _sectionTitle(
+                      'Recompensas dos parceiros',
+                      _availableLabel(_service.availableCount),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  _chipRow([
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Text(
+                        'Ordenar por',
+                        style: AppTextStyles.labelLg.copyWith(
+                          color: AppColors.brandTextSecondary,
+                        ),
+                      ),
+                    ),
+                    for (final sort in RewardSort.values)
+                      _choiceChip(
+                        label: sort.label,
+                        selected: _service.sort == sort,
+                        onSelected: () => _service.setSort(sort),
+                      ),
+                  ]),
+                  if (rewards.isEmpty)
+                    _rewardsEmpty()
+                  else
+                    for (final reward in rewards)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: RewardCard(
+                          reward: reward,
+                          balance: balance,
+                          onTap: () => _openReward(reward),
+                        ),
+                      ),
+                  _couponsSection(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _availableLabel(int count) =>
+      count == 1 ? '1 disponível' : '$count disponíveis';
+
+  Widget _sectionTitle(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppTextStyles.headlineSm.copyWith(
+            color: AppColors.brandTextPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: AppTextStyles.bodyMd.copyWith(
+            color: AppColors.brandTextSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _refreshError(String message) {
+    return RewardPanel(
+      color: AppColors.errorContainer,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              message,
+              style: AppTextStyles.bodyMd.copyWith(
+                color: AppColors.onErrorContainer,
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Tentar de novo'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _balanceCard() {
+    final loaded = _progress.isLoaded;
+    const onCard = AppColors.onPrimary;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
+        // Os dois verdes escuros da marca: o texto branco pequeno continua
+        // legível em todo o cartão.
         gradient: const LinearGradient(
-          colors: [AppColors.brandDarkAccent, AppColors.brandPrimary],
+          colors: [AppColors.brandDarkAccent, AppColors.primary],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -255,566 +335,274 @@ class _RecompensasPageState extends State<RecompensasPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'SEUS PONTOS DISPONÍVEIS',
-            style: AppTextStyles.labelSm.copyWith(
-              color: AppColors.brandSurface.withOpacity(0.85),
-              letterSpacing: 1.1,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Flexible(
-                child: Text(
-                  progress.formattedPoints,
-                  style: AppTextStyles.displayLgMobile.copyWith(
-                    color: AppColors.brandSurface,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  'pts',
-                  style: AppTextStyles.labelLg.copyWith(
-                    color: AppColors.brandSurface.withOpacity(0.85),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Troque por produtos, serviços, descontos e itens de jogos '
-            'oferecidos pelas empresas parceiras.',
-            style: AppTextStyles.bodySm.copyWith(
-              color: AppColors.brandSurface.withOpacity(0.9),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _balancePill(
-                icon: Icons.trending_up,
-                label:
-                    'Ganhos: ${UserProgressService.formatNumber(progress.pointsEarned)}',
-              ),
-              _balancePill(
-                icon: Icons.redeem,
-                label:
-                    'Resgatados: ${UserProgressService.formatNumber(progress.pointsSpent)}',
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _balancePill({required IconData icon, required String label}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface.withOpacity(0.16),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: AppColors.brandSurface, size: 14),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: AppTextStyles.labelSm.copyWith(
-              color: AppColors.brandSurface,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _rewardCard(Reward reward, UserProgressService progress) {
-    final canAfford = progress.points >= reward.pointsCost;
-    final enabled = reward.available && canAfford && !_service.busy;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.brandBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: AppColors.brandSecondaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(reward.icon, color: AppColors.brandDarkAccent),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            reward.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.bodyLg.copyWith(
-                              color: AppColors.brandTextPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        if (reward.isFeatured)
-                          Container(
-                            margin: const EdgeInsets.only(left: 6),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.brandTertiaryAccent.withOpacity(
-                                0.45,
-                              ),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              'Destaque',
-                              style: AppTextStyles.labelSm.copyWith(
-                                color: AppColors.tertiary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      reward.partnerName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.labelSm.copyWith(
-                        color: AppColors.brandTextSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              _categoryPill(reward.categoryLabel),
-              Text(
-                reward.available ? '${reward.stock} disponíveis' : 'Esgotado',
-                style: AppTextStyles.labelSm.copyWith(
-                  color:
-                      reward.available
-                          ? AppColors.brandTextSecondary
-                          : AppColors.error,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                '${UserProgressService.formatNumber(reward.pointsCost)} pts',
-                style: AppTextStyles.labelMd.copyWith(
-                  color: AppColors.brandPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  reward.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.bodySm.copyWith(
-                    color: AppColors.brandTextSecondary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: enabled ? () => _openReward(reward) : null,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.brandPrimary,
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-                child: Text(
-                  !reward.available
-                      ? 'Esgotado'
-                      : canAfford
-                      ? 'Resgatar'
-                      : 'Faltam pts',
-                  style: AppTextStyles.labelMd.copyWith(
-                    color: AppColors.onPrimary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _categoryPill(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.brandSecondaryContainer,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: AppTextStyles.labelSm.copyWith(
-          color: AppColors.brandDarkAccent,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _redemptionCard(RewardRedemption item) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.brandBorder),
-      ),
-      child: Row(
-        children: [
-          Icon(item.icon, color: AppColors.brandPrimary),
-          const SizedBox(width: 10),
-          Expanded(
+          MergeSemantics(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.rewardTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.labelLg.copyWith(
-                    color: AppColors.brandTextPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  'Saldo disponível',
+                  style: AppTextStyles.labelLg.copyWith(color: onCard),
                 ),
-                Text(
-                  '${item.partnerName} • ${item.dateLabel}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.labelSm.copyWith(
-                    color: AppColors.brandTextSecondary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                SelectableText(
-                  item.code,
-                  style: AppTextStyles.labelSm.copyWith(
-                    color: AppColors.brandDarkAccent,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '-${UserProgressService.formatNumber(item.pointsSpent)} pts',
-            style: AppTextStyles.labelSm.copyWith(
-              color: AppColors.brandTextSecondary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _emptyState() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-      child: Center(
-        child: Column(
-          children: [
-            const Icon(
-              Icons.search_off,
-              size: 40,
-              color: AppColors.brandTextSecondary,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Nenhuma recompensa encontrada',
-              style: AppTextStyles.bodyMd.copyWith(
-                color: AppColors.brandTextSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openReward(Reward reward) async {
-    final progress = UserProgressService.instance;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.brandBackground,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.brandBorder,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 4),
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandSecondaryContainer,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        reward.icon,
-                        color: AppColors.brandDarkAccent,
-                        size: 26,
+                    Flexible(
+                      child: Text(
+                        loaded ? _progress.formattedPoints : '—',
+                        style: AppTextStyles.displayLgMobile.copyWith(
+                          color: onCard,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            reward.title,
-                            style: AppTextStyles.headlineSm.copyWith(
-                              color: AppColors.brandTextPrimary,
-                            ),
-                          ),
-                          Text(
-                            reward.partnerName,
-                            style: AppTextStyles.labelSm.copyWith(
-                              color: AppColors.brandTextSecondary,
-                            ),
-                          ),
-                        ],
+                    if (loaded) ...[
+                      const SizedBox(width: 6),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          'pts',
+                          style: AppTextStyles.labelLg.copyWith(color: onCard),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  reward.description,
-                  style: AppTextStyles.bodyMd.copyWith(
-                    color: AppColors.brandTextSecondary,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    _categoryPill(reward.categoryLabel),
-                    Text(
-                      reward.available
-                          ? '${reward.stock} disponíveis'
-                          : 'Esgotado',
-                      style: AppTextStyles.labelSm.copyWith(
-                        color:
-                            reward.available
-                                ? AppColors.brandTextSecondary
-                                : AppColors.error,
-                      ),
-                    ),
-                    Text(
-                      '${UserProgressService.formatNumber(reward.pointsCost)} pts',
-                      style: AppTextStyles.labelMd.copyWith(
-                        color: AppColors.brandPrimary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                if (reward.terms != null && reward.terms!.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.brandSurface,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.brandBorder),
-                    ),
-                    child: Text(
-                      reward.terms!,
-                      style: AppTextStyles.labelSm.copyWith(
-                        color: AppColors.brandTextSecondary,
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: FilledButton.icon(
-                    onPressed:
-                        reward.available
-                            ? () {
-                              Navigator.of(sheetContext).pop();
-                              _redeem(reward);
-                            }
-                            : null,
-                    icon: const Icon(Icons.redeem, size: 18),
-                    label: Text(
-                      'Resgatar por '
-                      '${UserProgressService.formatNumber(reward.pointsCost)} pts',
-                    ),
-                  ),
-                ),
-                if (progress.points < reward.pointsCost)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Você ainda precisa de '
-                      '${UserProgressService.formatNumber(reward.pointsCost - progress.points)} '
-                      'pts para este resgate.',
-                      style: AppTextStyles.labelSm.copyWith(
-                        color: AppColors.error,
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),
-        );
-      },
+          const SizedBox(height: 6),
+          Text(
+            loaded
+                ? 'Ganhos: '
+                    '${UserProgressService.formatNumber(_progress.pointsEarned)}'
+                    ' • Usados em cupons: '
+                    '${UserProgressService.formatNumber(_progress.pointsSpent)}'
+                : 'Não foi possível carregar seu saldo. Puxe a tela para '
+                    'baixo para atualizar.',
+            style: AppTextStyles.labelMd.copyWith(color: onCard),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Cada ${Economy.pointsPerReal} pontos valem cerca de R\$ 1 em '
+            'benefícios.',
+            style: AppTextStyles.bodySm.copyWith(color: onCard),
+          ),
+        ],
+      ),
     );
   }
 
-  Future<void> _redeem(Reward reward) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final redemption = await _service.redeem(reward);
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder:
-            (dialogContext) => AlertDialog(
-              title: const Text('Resgate confirmado!'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Você resgatou "${redemption.rewardTitle}" com '
-                    '${redemption.partnerName}.',
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.brandSecondaryContainer,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'SEU CÓDIGO',
-                          style: AppTextStyles.labelSm.copyWith(
-                            color: AppColors.brandDarkAccent,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SelectableText(
-                          redemption.code,
-                          style: AppTextStyles.headlineSm.copyWith(
-                            color: AppColors.brandDarkAccent,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+  /// Atalho para os cupons que ainda podem ser usados.
+  Widget _couponsShortcut(int count) {
+    return Material(
+      color: AppColors.brandSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppColors.brandBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: _scrollToCoupons,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.confirmation_number_outlined,
+                  color: AppColors.brandDarkAccent,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    count == 1
+                        ? 'Você tem 1 cupom para usar'
+                        : 'Você tem $count cupons para usar',
+                    style: AppTextStyles.labelLg.copyWith(
+                      color: AppColors.brandTextPrimary,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Apresente o código ao parceiro para usar a recompensa.',
-                    style: AppTextStyles.bodySm.copyWith(
-                      color: AppColors.brandTextSecondary,
-                    ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Ver',
+                  style: AppTextStyles.labelLg.copyWith(
+                    color: AppColors.brandDarkAccent,
                   ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Fechar'),
+                ),
+                const Icon(
+                  Icons.expand_more,
+                  color: AppColors.brandDarkAccent,
                 ),
               ],
             ),
-      );
-    } on ApiException catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    } catch (_) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Não foi possível concluir o resgate. Tente novamente.',
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _searchField() {
+    OutlineInputBorder border(Color color, [double width = 1]) =>
+        OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: color, width: width),
+        );
+
+    return TextField(
+      controller: _searchController,
+      textInputAction: TextInputAction.search,
+      onChanged: (value) => _service.setSearch(value.trim()),
+      decoration: InputDecoration(
+        hintText: 'Buscar recompensa ou parceiro',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon:
+            _service.search.isEmpty
+                ? null
+                : IconButton(
+                  tooltip: 'Limpar busca',
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    _searchController.clear();
+                    _service.setSearch('');
+                  },
+                ),
+        filled: true,
+        fillColor: AppColors.brandSurface,
+        border: border(AppColors.brandBorder),
+        enabledBorder: border(AppColors.brandBorder),
+        focusedBorder: border(AppColors.brandDarkAccent, 2),
+      ),
+    );
+  }
+
+  /// Linha de chips que rola para os lados quando não cabe na tela.
+  Widget _chipRow(List<Widget> children) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            children[i],
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _choiceChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onSelected,
+  }) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) => onSelected(),
+        // Área de toque de 48 px também no navegador e no computador.
+        materialTapTargetSize: MaterialTapTargetSize.padded,
+        visualDensity: VisualDensity.standard,
+        selectedColor: AppColors.brandSecondaryContainer,
+        backgroundColor: AppColors.brandSurface,
+        checkmarkColor: AppColors.brandDarkAccent,
+        side: BorderSide(
+          color: selected ? AppColors.brandDarkAccent : AppColors.brandBorder,
+        ),
+        labelStyle: AppTextStyles.labelLg.copyWith(
+          color:
+              selected ? AppColors.brandDarkAccent : AppColors.brandTextPrimary,
+        ),
+      ),
+    );
+  }
+
+  Widget _rewardsEmpty() {
+    final filtered =
+        _service.search.isNotEmpty ||
+        _service.category != RewardCategoryFilter.todas;
+    if (filtered) {
+      return EmptyStateView(
+        icon: Icons.search_off,
+        title: 'Nenhuma recompensa encontrada',
+        message: 'Tente outra busca ou outra categoria.',
+        actionLabel: 'Limpar filtros',
+        onAction: _service.clearFilters,
       );
+    }
+    return const EmptyStateView(
+      icon: Icons.redeem,
+      title: 'Nenhuma recompensa por enquanto',
+      message: 'Quando houver recompensas dos parceiros, elas aparecem aqui.',
+    );
+  }
+
+  Widget _couponsSection() {
+    final coupons = _service.redemptions;
+    int count(CouponStatus status) =>
+        coupons.where((coupon) => coupon.status == status).length;
+    final visible =
+        coupons.where((coupon) => coupon.status == _couponTab).toList();
+
+    return Column(
+      key: _couponsKey,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 28, 16, 0),
+          child: _sectionTitle(
+            'Meus cupons',
+            'Toque em um cupom para ver o código e conferir no balcão.',
+          ),
+        ),
+        const SizedBox(height: 4),
+        _chipRow([
+          for (final status in CouponStatus.values)
+            _choiceChip(
+              label: '${status.pluralLabel} (${count(status)})',
+              selected: _couponTab == status,
+              onSelected: () => setState(() => _couponTab = status),
+            ),
+        ]),
+        if (visible.isEmpty)
+          _couponsEmpty()
+        else
+          for (final coupon in visible)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: CouponTile(
+                coupon: coupon,
+                onTap: () => _openCoupon(coupon),
+              ),
+            ),
+      ],
+    );
+  }
+
+  Widget _couponsEmpty() {
+    switch (_couponTab) {
+      case CouponStatus.active:
+        return const EmptyStateView(
+          icon: Icons.confirmation_number_outlined,
+          title: 'Nenhum cupom disponível',
+          message: 'Resgate uma recompensa e o cupom aparece aqui.',
+        );
+      case CouponStatus.used:
+        return const EmptyStateView(
+          icon: Icons.task_alt,
+          title: 'Nenhum cupom usado',
+          message: 'Os cupons conferidos no balcão aparecem aqui.',
+        );
+      case CouponStatus.expired:
+        return const EmptyStateView(
+          icon: Icons.event_busy_outlined,
+          title: 'Nenhum cupom vencido',
+          message: 'Os cupons que passarem da validade aparecem aqui.',
+        );
     }
   }
 }

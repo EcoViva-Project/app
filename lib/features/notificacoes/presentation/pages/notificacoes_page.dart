@@ -18,6 +18,15 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
   _NotificationFilter _filter = _NotificationFilter.todas;
 
   @override
+  void initState() {
+    super.initState();
+    // A lista é recarregada sempre que a tela abre.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _service.load().catchError((_) {});
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.brandBackground,
@@ -387,7 +396,7 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
                   child: OutlinedButton.icon(
                     onPressed: () {
                       Navigator.of(sheetContext).pop();
-                      _navigateTo(notification.category);
+                      _navigateTo(notification.destination);
                     },
                     icon: const Icon(Icons.arrow_forward, size: 18),
                     label: const Text('Ver no aplicativo'),
@@ -477,8 +486,7 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
     }
   }
 
-  void _navigateTo(NotificationCategory category) {
-    final destination = _destinationFor(category);
+  void _navigateTo(String destination) {
     const shellDestinations = {
       '/inicio',
       '/acoes',
@@ -512,7 +520,7 @@ class _NotificacoesPageState extends State<NotificacoesPage> {
             ),
           ),
           content: Text(
-            'Todas as notificações serão removidas desta sessão.',
+            'Todas as notificações serão apagadas da sua conta. Não dá para desfazer.',
             style: AppTextStyles.bodyMd.copyWith(
               color: AppColors.brandTextSecondary,
             ),
@@ -564,6 +572,12 @@ _NotificationVisual _visualFor(NotificationCategory category) {
         AppColors.brandSecondaryContainer,
         AppColors.brandPrimary,
       );
+    case NotificationCategory.recompensa:
+      return const _NotificationVisual(
+        Icons.redeem,
+        AppColors.brandSecondaryContainer,
+        AppColors.brandDarkAccent,
+      );
     case NotificationCategory.sistema:
       return _NotificationVisual(
         Icons.notifications_active_outlined,
@@ -581,20 +595,9 @@ String _categoryLabel(NotificationCategory category) {
       return 'Desafio';
     case NotificationCategory.comunidade:
       return 'Comunidade';
+    case NotificationCategory.recompensa:
+      return 'Recompensa';
     case NotificationCategory.sistema:
-      return 'Lembrete';
-  }
-}
-
-String _destinationFor(NotificationCategory category) {
-  switch (category) {
-    case NotificationCategory.conquista:
-      return '/conquistas';
-    case NotificationCategory.desafio:
-      return '/desafios';
-    case NotificationCategory.comunidade:
-      return '/comunidade';
-    case NotificationCategory.sistema:
-      return '/acoes';
+      return 'Aviso';
   }
 }
