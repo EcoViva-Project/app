@@ -3,9 +3,31 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/local/places.dart';
 import '../../../../core/services/auth_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+
+/// Texto de ajuda padrão do campo "Bairro".
+const String kNeighborhoodHelper =
+    'Digite 2 letras ou mais para ver sugestões.';
+
+/// Aviso quando o bairro digitado não está na lista.
+const String kUnknownNeighborhoodHint =
+    'Não achamos esse bairro na lista de Rio Preto. Escolha uma sugestão para '
+    'aparecer no mapa.';
+
+/// Ajuda do campo "Bairro" para o texto digitado: o aviso de bairro fora da
+/// lista, o nome reconhecido quando a pessoa abreviou ("Jd Nazareth") ou
+/// `null` (texto curto ou nome exato). Não impede de salvar.
+String? neighborhoodHint(String text) {
+  final value = text.trim();
+  if (value.length < 2) return null;
+  final found = Places.findNeighborhood(value);
+  if (found == null) return kUnknownNeighborhoodHint;
+  if (Places.normalize(found.name) == Places.normalize(value)) return null;
+  return 'Vamos usar o bairro ${found.name} no mapa.';
+}
 
 /// Controladores dos campos de endereço. Quem cria chama [dispose].
 class AddressControllers {
@@ -86,7 +108,16 @@ class _AddressFieldsState extends State<AddressFields> {
   int _searchId = 0;
   List<String> _suggestions = const [];
 
+  /// Aviso sobre o bairro digitado (ver [neighborhoodHint]).
+  String? _hint;
+
   AddressControllers get _c => widget.controllers;
+
+  @override
+  void initState() {
+    super.initState();
+    _hint = neighborhoodHint(_c.neighborhood.text);
+  }
 
   @override
   void didUpdateWidget(covariant AddressFields oldWidget) {
@@ -109,10 +140,18 @@ class _AddressFieldsState extends State<AddressFields> {
     final query = text.trim();
     if (query.length < 2) {
       _searchId++;
-      if (_suggestions.isNotEmpty) setState(() => _suggestions = const []);
+      if (_suggestions.isNotEmpty || _hint != null) {
+        setState(() {
+          _suggestions = const [];
+          _hint = null;
+        });
+      }
       return;
     }
-    _debounce = Timer(_searchDelay, () => _search(query));
+    _debounce = Timer(_searchDelay, () {
+      if (mounted) setState(() => _hint = neighborhoodHint(query));
+      _search(query);
+    });
   }
 
   Future<void> _search(String query) async {
@@ -136,7 +175,10 @@ class _AddressFieldsState extends State<AddressFields> {
       text: name,
       selection: TextSelection.collapsed(offset: name.length),
     );
-    setState(() => _suggestions = const []);
+    setState(() {
+      _suggestions = const [];
+      _hint = neighborhoodHint(name);
+    });
   }
 
   static String? _maxLength(String? value, int max, String label) {
@@ -242,12 +284,19 @@ class _AddressFieldsState extends State<AddressFields> {
           textInputAction: TextInputAction.next,
           autofillHints: const [AutofillHints.sublocality],
           inputFormatters: [LengthLimitingTextInputFormatter(80)],
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Bairro',
-            helperText: 'Digite 2 letras ou mais para ver sugestões.',
-            helperMaxLines: 2,
+            helperText: _hint ?? kNeighborhoodHelper,
+            helperStyle:
+                _hint == kUnknownNeighborhoodHint
+                    ? AppTextStyles.bodySm.copyWith(
+                      color: AppColors.tertiary,
+                      fontWeight: FontWeight.w600,
+                    )
+                    : null,
+            helperMaxLines: 3,
             errorMaxLines: 2,
-            prefixIcon: Icon(Icons.location_on_outlined),
+            prefixIcon: const Icon(Icons.location_on_outlined),
           ),
           onChanged: _onNeighborhoodChanged,
           validator: (value) {

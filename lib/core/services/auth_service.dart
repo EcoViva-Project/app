@@ -6,6 +6,7 @@ import 'action_history_service.dart';
 import 'api_client.dart';
 import 'challenge_service.dart';
 import 'community_service.dart';
+import 'my_location_service.dart';
 import 'neighborhood_service.dart';
 import 'notification_service.dart';
 import 'reward_service.dart';
@@ -292,6 +293,7 @@ class AuthService extends ChangeNotifier {
   /// da conta, deixando o app pronto para a próxima apresentação.
   Future<void> resetDemo() async {
     await ApiClient.instance.post('/demo/reset');
+    await MyLocationService.instance.clearAll();
     await logout();
   }
 

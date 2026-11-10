@@ -127,42 +127,99 @@ class NeighborMarker extends StatelessWidget {
   }
 }
 
-/// Marcador "você": círculo destacado com as iniciais da pessoa.
+/// Largura do marcador "você" (cabe o rótulo "Você").
+const double kMeMarkerWidth = 64;
+
+/// Altura do marcador "você": o círculo fica no meio, com o rótulo embaixo e
+/// o mesmo espaço vazio em cima, para o centro do círculo cair na posição.
+const double kMeMarkerHeight = kMapMarkerSize + 2 * _meCaptionHeight;
+
+const double _meCaptionHeight = 18;
+
+/// Marcador "você": círculo destacado com as iniciais da pessoa e o rótulo
+/// "Você" embaixo, para não confundir com um vizinho de mesmas iniciais.
+/// Tocar abre a folha "Você".
 class MeMarker extends StatelessWidget {
-  const MeMarker({super.key, required this.initials});
+  const MeMarker({
+    super.key,
+    required this.initials,
+    required this.exact,
+    required this.onPressed,
+  });
 
   final String initials;
 
+  /// Está na posição exata (e não na região do bairro).
+  final bool exact;
+  final VoidCallback onPressed;
+
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      label: 'Você, na região do seu bairro',
-      excludeSemantics: true,
-      child: Center(
-        child: Container(
-          width: 42,
-          height: 42,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.brandTertiaryAccent,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.brandDarkAccent.withValues(alpha: 0.45),
-                blurRadius: 0,
-                spreadRadius: 3,
+    return Column(
+      children: [
+        const SizedBox(height: _meCaptionHeight),
+        MapMarkerButton(
+          label:
+              exact
+                  ? 'Você, na sua posição. Toque para ver as opções.'
+                  : 'Você, na região do seu bairro. Toque para ver as opções.',
+          onPressed: onPressed,
+          child: _circle(),
+        ),
+        SizedBox(
+          height: _meCaptionHeight,
+          child: IgnorePointer(
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.brandDarkAccent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Você',
+                  maxLines: 1,
+                  textScaler: TextScaler.noScaling,
+                  style: AppTextStyles.labelSm.copyWith(
+                    fontSize: 11,
+                    height: 1.4,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ],
-          ),
-          child: Text(
-            initials,
-            maxLines: 1,
-            textScaler: TextScaler.noScaling,
-            style: AppTextStyles.labelLg.copyWith(
-              color: AppColors.brandTextPrimary,
-              fontWeight: FontWeight.w700,
             ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _circle() {
+    return Center(
+      child: Container(
+        width: 42,
+        height: 42,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.brandTertiaryAccent,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.brandDarkAccent.withValues(alpha: 0.45),
+              blurRadius: 0,
+              spreadRadius: 3,
+            ),
+          ],
+        ),
+        child: Text(
+          initials,
+          maxLines: 1,
+          textScaler: TextScaler.noScaling,
+          style: AppTextStyles.labelLg.copyWith(
+            color: AppColors.brandTextPrimary,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),

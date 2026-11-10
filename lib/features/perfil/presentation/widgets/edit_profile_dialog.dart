@@ -5,6 +5,8 @@ import '../../../../core/services/api_client.dart';
 import '../../../../core/services/auth_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../auth/presentation/widgets/address_fields.dart'
+    show kNeighborhoodHelper, kUnknownNeighborhoodHint, neighborhoodHint;
 
 /// Abre o diálogo de edição. Devolve `true` se os dados foram salvos.
 Future<bool> showEditProfileDialog(BuildContext context) async {
@@ -43,6 +45,9 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
   List<String> _suggestions = const [];
   int _searchId = 0;
 
+  /// Aviso sobre o bairro digitado (ver [neighborhoodHint]).
+  String? _hint;
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +60,7 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
     _number = TextEditingController(text: field('number'));
     _complement = TextEditingController(text: field('complement'));
     _neighborhood = TextEditingController(text: auth.neighborhood);
+    _hint = neighborhoodHint(auth.neighborhood);
     final city = auth.city.isNotEmpty ? auth.city : field('city');
     _city = TextEditingController(
       text: city.isEmpty ? EditProfileDialog.defaultCity : city,
@@ -85,6 +91,8 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
   Future<void> _searchNeighborhoods(String text) async {
     final query = text.trim();
     final id = ++_searchId;
+    final hint = neighborhoodHint(query);
+    if (hint != _hint) setState(() => _hint = hint);
     if (query.length < 2) {
       if (_suggestions.isNotEmpty) setState(() => _suggestions = const []);
       return;
@@ -108,7 +116,10 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
       text: name,
       selection: TextSelection.collapsed(offset: name.length),
     );
-    setState(() => _suggestions = const []);
+    setState(() {
+      _suggestions = const [];
+      _hint = neighborhoodHint(name);
+    });
   }
 
   Future<void> _save() async {
@@ -144,12 +155,18 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
     }
   }
 
-  InputDecoration _decoration(String label, {String? hint, String? helper}) {
+  InputDecoration _decoration(
+    String label, {
+    String? hint,
+    String? helper,
+    TextStyle? helperStyle,
+  }) {
     return InputDecoration(
       labelText: label,
       hintText: hint,
       helperText: helper,
-      helperMaxLines: 2,
+      helperStyle: helperStyle,
+      helperMaxLines: 3,
       errorMaxLines: 2,
       border: const OutlineInputBorder(),
     );
@@ -252,7 +269,14 @@ class _EditProfileDialogState extends State<EditProfileDialog> {
               textInputAction: TextInputAction.next,
               decoration: _decoration(
                 'Bairro',
-                helper: 'Digite 2 letras ou mais para ver sugestões.',
+                helper: _hint ?? kNeighborhoodHelper,
+                helperStyle:
+                    _hint == kUnknownNeighborhoodHint
+                        ? AppTextStyles.bodySm.copyWith(
+                          color: AppColors.tertiary,
+                          fontWeight: FontWeight.w600,
+                        )
+                        : null,
               ),
               onChanged: _searchNeighborhoods,
               validator: (value) {

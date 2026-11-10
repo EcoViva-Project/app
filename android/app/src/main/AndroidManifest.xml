@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Necessária também no APK de release: sem ela o app não acessa a API no modo online. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Localização só com o app aberto, para mostrar a própria posição no
+         mapa. Fica no aparelho; não pedimos localização em segundo plano. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <application
         android:label="EcoViva"
         android:usesCleartextTraffic="true"

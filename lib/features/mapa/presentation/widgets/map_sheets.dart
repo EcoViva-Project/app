@@ -92,7 +92,8 @@ Future<void> showMapLegendSheet(BuildContext context, {String? sourceLabel}) {
                 border: AppColors.brandDarkAccent,
               ),
             ),
-            'Você, na região do seu bairro',
+            'Você: na sua localização (só você vê) ou na região do seu '
+            'bairro',
           ),
           if (sourceLabel != null) ...[
             const SizedBox(height: 8),
