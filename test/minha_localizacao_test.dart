@@ -262,19 +262,94 @@ void main() {
       expect(keys, hasLength(2));
     });
 
-    test('"Restaurar demonstração" apaga a posição de todos', () async {
+    test('"Restaurar demonstração" guarda a posição de quem estava logado '
+        'para a próxima entrada, uma vez só, e apaga a dos outros', () async {
+      // Outra conta com posição própria neste aparelho.
+      await AuthService.instance.logout();
+      await AuthService.instance.register(
+        name: 'Bruno Lima',
+        email: 'bruno@eco.app',
+        password: 'segredo123',
+        neighborhood: 'Vila Toninho',
+      );
+      await _service.load();
+      _service.setManual(posicaoNoCentro.lat, posicaoNoCentro.lon);
+      await _service.markIntroSeen();
+      await pumpEventQueue();
+
+      // A Clara marca a posição à mão (salão sem GPS) e restaura.
+      await AuthService.instance.logout();
+      await signInDemo();
       _service.setManual(posicaoNoNorte.lat, posicaoNoNorte.lon);
+      final takenAt = _service.position!.takenAt;
       await _service.markIntroSeen();
       await pumpEventQueue();
 
       await AuthService.instance.resetDemo();
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getKeys().where((k) => k.startsWith('eco_my_')), isEmpty);
+      expect(prefs.getKeys().where((k) => k.startsWith('eco_my_')), [
+        'eco_my_location_carry_over',
+      ]);
 
+      // A demonstração recriada fica com a posição, a origem e o horário.
       await signInDemo();
+      await _service.load();
+      expect(_service.position?.lat, posicaoNoNorte.lat);
+      expect(_service.position?.lon, posicaoNoNorte.lon);
+      expect(_service.position?.source, MyPositionSource.manual);
+      expect(_service.position?.takenAt, takenAt);
+      expect(_service.introSeen, isTrue);
+      expect(prefs.containsKey('eco_my_location_carry_over'), isFalse);
+
+      // Continua marcada à mão: a atualização automática não troca.
+      final fake = _use(FakeDeviceLocator(current: posicaoNoCentro));
+      final automatic = await _service.locate(automatic: true);
+      expect(automatic.status, LocateStatus.keptManual);
+      expect(fake.currentCalls, 0);
+
+      // Lida de novo do armazenamento (app reaberto), continua lá.
+      _service.debugReset();
+      await _service.load();
+      expect(_service.position?.lat, posicaoNoNorte.lat);
+      expect(_service.introSeen, isTrue);
+
+      // A posição do Bruno foi apagada, e a guarda não vale de novo.
+      await AuthService.instance.logout();
+      await AuthService.instance.register(
+        name: 'Bruno Lima',
+        email: 'bruno@eco.app',
+        password: 'segredo123',
+        neighborhood: 'Vila Toninho',
+      );
       await _service.load();
       expect(_service.position, isNull);
       expect(_service.introSeen, isFalse);
+    });
+
+    test('a posição do celular, ainda não lida nesta execução, também '
+        'passa pela restauração', () async {
+      _use(FakeDeviceLocator(current: posicaoNoCentro));
+      await _service.locate();
+      final takenAt = _service.position!.takenAt;
+      await pumpEventQueue();
+
+      _service.debugReset(); // app reaberto, ainda sem ler a posição
+      await AuthService.instance.resetDemo();
+      await signInDemo();
+      await _service.load();
+      expect(_service.position?.lat, posicaoNoCentro.lat);
+      expect(_service.position?.source, MyPositionSource.gps);
+      expect(_service.position?.takenAt, takenAt);
+      expect(_service.introSeen, isFalse, reason: 'o aviso nunca apareceu');
+    });
+
+    test('sem posição, a restauração não guarda nada', () async {
+      await AuthService.instance.resetDemo();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getKeys().where((k) => k.startsWith('eco_my_')), isEmpty);
+      await signInDemo();
+      await _service.load();
+      expect(_service.position, isNull);
     });
   });
 

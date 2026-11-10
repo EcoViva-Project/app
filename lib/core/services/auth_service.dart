@@ -103,6 +103,7 @@ class AuthService extends ChangeNotifier {
   /// desloga ninguém.
   Future<void> initialize() async {
     ApiClient.instance.onUnauthorized = _handleUnauthorized;
+    _demoNoticeDismissed = false; // "Agora não" vale até o app abrir de novo
     try {
       await SessionService.instance.load();
       if (isAuthenticated) {
@@ -292,11 +293,53 @@ class AuthService extends ChangeNotifier {
 
   /// Modo local: apaga os dados deste aparelho, recria a demonstração e sai
   /// da conta, deixando o app pronto para a próxima apresentação.
+  ///
+  /// A posição no mapa de quem estava logado continua guardada no aparelho.
   Future<void> resetDemo() async {
+    await _wipeDemo();
+    await logout();
+  }
+
+  /// Aviso "Atualizar agora": recria a demonstração com a data de hoje e
+  /// entra de novo na conta de demonstração, sem passar pela tela de entrada.
+  Future<void> refreshDemo() async {
+    _refreshingDemo = true;
+    try {
+      await _wipeDemo();
+      _resetServices();
+      await login(email: demoEmail, password: demoPassword);
+    } finally {
+      _refreshingDemo = false;
+    }
+  }
+
+  Future<void> _wipeDemo() async {
     await ApiClient.instance.post('/demo/reset');
     PhotoProof.files.deleteAll().ignore(); // fotos de comprovação do aparelho
-    await MyLocationService.instance.clearAll();
-    await logout();
+    await MyLocationService.instance.clearAllKeepingMine();
+  }
+
+  bool _refreshingDemo = false;
+  bool _demoNoticeDismissed = false;
+
+  /// Dia (`AAAA-MM-DD`) em que os dados de demonstração foram criados; só a
+  /// conta de demonstração no modo local recebe. `null` se não se sabe.
+  String? get demoSeededOn => user?['demoSeededOn'] as String?;
+
+  /// Os dados de demonstração são de outro dia (ou de um dia desconhecido).
+  bool get demoStale => user?['demoStale'] == true;
+
+  /// Mostra na Início o aviso de dados de demonstração de outro dia.
+  bool get showDemoStaleNotice =>
+      isAuthenticated &&
+      demoStale &&
+      !_demoNoticeDismissed &&
+      userEmail.toLowerCase() == demoEmail;
+
+  /// "Agora não": esconde o aviso até o app ser aberto de novo.
+  void dismissDemoStaleNotice() {
+    _demoNoticeDismissed = true;
+    notifyListeners();
   }
 
   /// Carrega (ou recarrega) todos os módulos. A falha de um módulo não
@@ -338,7 +381,8 @@ class AuthService extends ChangeNotifier {
 
   /// A API recusou o token: encerra a sessão para o roteador levar ao login.
   void _handleUnauthorized() {
-    if (_signingOut || !isAuthenticated) return;
+    // Durante "Atualizar agora" a conta é recriada e o login vem logo depois.
+    if (_signingOut || _refreshingDemo || !isAuthenticated) return;
     _signingOut = true;
     logout().whenComplete(() => _signingOut = false);
   }

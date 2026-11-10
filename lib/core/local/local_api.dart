@@ -345,7 +345,25 @@ class LocalApi {
       'privacyProfile': _flag(user['privacy_profile']),
       'privacyLocation': _flag(user['privacy_location']),
     },
+    ...?_demoStatus(user),
   };
+
+  /// Só para a conta de demonstração: o dia em que os dados foram criados e
+  /// se são de outro dia (pelo relógio da própria API). Um banco sem essa
+  /// marca, criado por uma versão anterior do app, conta como de outro dia.
+  Map<String, Object?>? _demoStatus(DbRow user) {
+    if ('${user['email']}'.toLowerCase() != LocalSeed.demoEmail) return null;
+    String? seededOn;
+    for (final row in db.table('app_meta')) {
+      if (row['key'] == LocalSeed.seededOnKey) {
+        seededOn = row['value'] as String?;
+      }
+    }
+    return {
+      'demoSeededOn': seededOn,
+      'demoStale': seededOn != Economy.dateKey(now),
+    };
+  }
 
   /// Texto como "Há 10 min", igual ao do servidor.
   String relativeTime(Object? iso) {

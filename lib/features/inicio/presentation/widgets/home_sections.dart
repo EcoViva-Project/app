@@ -8,12 +8,86 @@ import '../../../../core/services/neighborhood_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/utils/impact_equivalents.dart';
 import '../../../../core/widgets/day_status_circle.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../progresso/presentation/widgets/shared_blocks.dart';
 
 // Blocos da aba Início. Cada um recebe os dados (ou o serviço) pelo
 // construtor, para ser reconstruído sempre que a tela reagir a um serviço.
+
+/// Aviso para quem apresenta: os dados de demonstração são de outro dia, e o
+/// roteiro (teto semanal atingido ao vivo) só funciona com os dados de hoje.
+class HomeDemoStaleBanner extends StatelessWidget {
+  const HomeDemoStaleBanner({
+    super.key,
+    required this.seededOn,
+    required this.onRefresh,
+    required this.onDismiss,
+  });
+
+  /// Dia em que a demonstração foi criada (`AAAA-MM-DD`), se conhecido.
+  final String? seededOn;
+  final VoidCallback onRefresh;
+  final VoidCallback onDismiss;
+
+  /// "Os dados de demonstração são de 09/11. Atualize para ..."
+  static String message(String? seededOn) {
+    final parts = seededOn?.split('-');
+    final when =
+        parts != null && parts.length == 3
+            ? 'de ${parts[2]}/${parts[1]}'
+            : 'de outro dia';
+    return 'Os dados de demonstração são $when. Atualize para apresentar '
+        'com os números de hoje.';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return EcoCard(
+      color: AppColors.brandTertiaryAccent.withAlpha(56),
+      bordered: false,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.update, size: 20, color: AppColors.tertiary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  message(seededOn),
+                  style: AppTextStyles.bodySm.copyWith(
+                    color: AppColors.brandTextPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              children: [
+                TextButton(
+                  onPressed: onDismiss,
+                  child: const Text('Agora não'),
+                ),
+                TextButton(
+                  onPressed: onRefresh,
+                  child: const Text('Atualizar agora'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Cartão principal: saldo disponível, nível e pontos ganhos no total.
 class HomeBalanceCard extends StatelessWidget {
@@ -103,6 +177,7 @@ class HomeIndicators extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final liters = UserProgressService.formatNumber(progress.litersSaved);
+    final water = WaterEquivalents.of(progress.litersSaved);
     return Column(
       children: [
         IntrinsicHeight(
@@ -131,6 +206,8 @@ class HomeIndicators extends StatelessWidget {
                     'litro',
                     'litros',
                   ),
+                  detail: water?.shortLine,
+                  spokenDetail: water?.spokenShortLine,
                 ),
               ),
             ],
@@ -153,6 +230,8 @@ class _IndicatorTile extends StatelessWidget {
     required this.label,
     required this.value,
     this.spokenValue,
+    this.detail,
+    this.spokenDetail,
   });
 
   final IconData icon;
@@ -162,10 +241,19 @@ class _IndicatorTile extends StatelessWidget {
   /// Valor por extenso para leitores de tela (por exemplo "28 litros").
   final String? spokenValue;
 
+  /// Linha curta embaixo do valor (por exemplo "≈ 76 garrafões de 20 L").
+  final String? detail;
+
+  /// [detail] por extenso para leitores de tela.
+  final String? spokenDetail;
+
   @override
   Widget build(BuildContext context) {
+    final extra = spokenDetail ?? detail;
     return Semantics(
-      label: '$label: ${spokenValue ?? value}',
+      label:
+          '$label: ${spokenValue ?? value}'
+          '${extra == null ? '' : ', $extra'}',
       excludeSemantics: true,
       child: EcoCard(
         padding: const EdgeInsets.all(12),
@@ -202,6 +290,15 @@ class _IndicatorTile extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
+            if (detail != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                detail!,
+                style: AppTextStyles.bodySm.copyWith(
+                  color: AppColors.brandTextSecondary,
+                ),
+              ),
+            ],
           ],
         ),
       ),

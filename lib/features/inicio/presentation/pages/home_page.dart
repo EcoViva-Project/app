@@ -12,6 +12,7 @@ import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_page_header.dart';
+import '../../../../core/widgets/reset_demo_dialog.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/weekly_cap_card.dart';
 import '../widgets/home_sections.dart';
@@ -40,6 +41,41 @@ class _HomePageState extends State<HomePage> {
     NeighborhoodService.instance,
   ]);
 
+  bool _refreshingDemo = false;
+
+  /// Aviso "Atualizar agora": pergunta como em Perfil → "Restaurar
+  /// demonstração", recria os dados e entra de novo, ficando na Início.
+  Future<void> _refreshDemo() async {
+    if (_refreshingDemo) return;
+    final confirmed = await confirmResetDemo(
+      context,
+      afterwards: 'Depois, o app entra de novo na conta de demonstração.',
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _refreshingDemo = true);
+    try {
+      await AuthService.instance.refreshDemo();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Demonstração atualizada com os números de hoje.'),
+          ),
+        );
+    } catch (error) {
+      if (mounted) {
+        showErrorSnackBar(
+          context,
+          error,
+          fallback: 'Não foi possível atualizar a demonstração.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingDemo = false);
+    }
+  }
+
   Future<void> _refresh() async {
     await AuthService.instance.loadAll();
     if (!mounted) return;
@@ -67,6 +103,9 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildBody(BuildContext context) {
     final progress = UserProgressService.instance;
+    if (_refreshingDemo) {
+      return const LoadingView(message: 'Atualizando a demonstração…');
+    }
     if (!progress.isLoaded) {
       if (progress.loading) {
         return const LoadingView(message: 'Carregando seus dados…');
@@ -111,6 +150,14 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (auth.showDemoStaleNotice) ...[
+                HomeDemoStaleBanner(
+                  seededOn: auth.demoSeededOn,
+                  onRefresh: _refreshDemo,
+                  onDismiss: auth.dismissDemoStaleNotice,
+                ),
+                const SizedBox(height: 12),
+              ],
               _Greeting(
                 firstName: auth.firstName,
                 neighborhood: auth.neighborhood,

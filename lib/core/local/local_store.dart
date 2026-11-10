@@ -200,6 +200,13 @@ const Map<String, String> localSchema = {
     text TEXT NOT NULL,
     category_label TEXT NOT NULL,
     icon TEXT NOT NULL''',
+  // Informações do próprio banco do aparelho, como o dia em que a
+  // demonstração foi criada (`demo_seeded_on`). Só existe no app: tabela
+  // nova, criada sozinha também em bancos já instalados.
+  'app_meta': '''
+    id INTEGER PRIMARY KEY,
+    key TEXT NOT NULL,
+    value TEXT''',
 };
 
 /// Onde o banco local é gravado.

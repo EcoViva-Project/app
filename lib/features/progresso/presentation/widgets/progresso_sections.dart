@@ -9,6 +9,7 @@ import '../../../../core/services/challenge_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/utils/impact_equivalents.dart';
 import '../../../../core/widgets/state_views.dart';
 import 'shared_blocks.dart';
 
@@ -206,6 +207,63 @@ class ProgressStreakCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Água poupada em garrafões e em dias de água para uma pessoa. Só aparece
+/// a partir de um garrafão (20 litros).
+class ProgressWaterCard extends StatelessWidget {
+  const ProgressWaterCard({super.key, required this.water});
+
+  final WaterEquivalents water;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Água poupada: ${water.sentence}',
+      excludeSemantics: true,
+      child: EcoCard(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.brandSecondaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.water_drop_outlined,
+                color: AppColors.brandDarkAccent,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Água poupada',
+                    style: AppTextStyles.labelLg.copyWith(
+                      color: AppColors.brandTextPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    water.sentence,
+                    style: AppTextStyles.bodyMd.copyWith(
+                      color: AppColors.brandTextPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
