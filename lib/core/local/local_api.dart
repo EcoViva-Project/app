@@ -229,7 +229,11 @@ class LocalApi {
         return _toggleLike(user, id);
       case ('GET', ['community', 'posts', final id, 'comments']):
         final post = _requireRow('posts', id, 'Publicação não encontrada.');
-        return {'comments': _commentsOf(post).map(_commentJson).toList()};
+        return {
+          'comments': [
+            for (final c in _commentsOf(post)) _commentJson(c, user),
+          ],
+        };
       case ('POST', ['community', 'posts', final id, 'comments']):
         return _createComment(user, id, data);
       case ('DELETE', ['community', 'posts', final id]):
@@ -1531,6 +1535,25 @@ class LocalApi {
   // Comunidade
   // ---------------------------------------------------------------------------
 
+  static const anonymousName = 'Alguém do bairro';
+  static const anonymousInitials = '•';
+
+  /// Nome e iniciais de [person] como [viewer] deve vê-los. Quem desligou
+  /// "Perfil visível para a comunidade" aparece aos outros como "Alguém do
+  /// bairro"; a própria pessoa sempre se vê com o nome real. Vale a
+  /// preferência de agora, inclusive para o que foi publicado antes.
+  (Object?, Object?) _shownAs(
+    DbRow? person,
+    DbRow viewer,
+    Object? name,
+    Object? initials,
+  ) =>
+      person != null &&
+              person['id'] != viewer['id'] &&
+              !_flag(person['privacy_profile'])
+          ? (anonymousName, anonymousInitials)
+          : (name, initials);
+
   List<DbRow> _commentsOf(DbRow post) =>
       db
           .table('post_comments')
@@ -1538,29 +1561,43 @@ class LocalApi {
           .toList()
         ..sort((a, b) => '${a['created_at']}'.compareTo('${b['created_at']}'));
 
-  Map<String, dynamic> _commentJson(DbRow row) => {
-    'id': row['id'],
-    'authorName': row['author_name'],
-    'authorInitials': row['author_initials'],
-    'content': row['content'],
-    'timeLabel': relativeTime(row['created_at']),
-    'createdAt': row['created_at'],
-  };
+  Map<String, dynamic> _commentJson(DbRow row, DbRow user) {
+    final (name, initials) = _shownAs(
+      db.byId('users', row['user_id']),
+      user,
+      row['author_name'],
+      row['author_initials'],
+    );
+    return {
+      'id': row['id'],
+      'authorName': name,
+      'authorInitials': initials,
+      'content': row['content'],
+      'timeLabel': relativeTime(row['created_at']),
+      'createdAt': row['created_at'],
+    };
+  }
 
   Map<String, dynamic> _postJson(DbRow row, DbRow user) {
     final likes =
         db.table('post_likes').where((l) => l['post_id'] == row['id']).toList();
+    final (name, initials) = _shownAs(
+      db.byId('users', row['user_id']),
+      user,
+      row['author_name'],
+      row['author_initials'],
+    );
     return {
       'id': row['id'],
-      'authorName': row['author_name'],
-      'authorInitials': row['author_initials'],
+      'authorName': name,
+      'authorInitials': initials,
       'content': row['content'],
       'likes': _i(row['base_likes']) + likes.length,
       'likedByMe': likes.any((l) => l['user_id'] == user['id']),
       'isMine': row['user_id'] == user['id'],
       'timeLabel': relativeTime(row['created_at']),
       'createdAt': row['created_at'],
-      'comments': _commentsOf(row).map(_commentJson).toList(),
+      'comments': [for (final c in _commentsOf(row)) _commentJson(c, user)],
     };
   }
 
@@ -1628,15 +1665,16 @@ class LocalApi {
     });
     final owner = db.byId('users', post['user_id']);
     if (owner != null && owner['id'] != user['id']) {
+      final (name, _) = _shownAs(user, owner, user['name'], user['initials']);
       await notify(
         owner,
         'comunidade',
         'Novo comentário',
-        '${user['name']} comentou na sua publicação.',
+        '$name comentou na sua publicação.',
         target: '/comunidade',
       );
     }
-    return {'comment': _commentJson(comment)};
+    return {'comment': _commentJson(comment, user)};
   }
 
   Future<Map<String, dynamic>> _deletePost(DbRow user, String id) async {
@@ -1707,10 +1745,16 @@ class LocalApi {
       // aos outros no ranking.
       final showsNeighborhood =
           isMe || (person != null && _flag(person['privacy_location']));
+      final (name, initials) = _shownAs(
+        person,
+        user,
+        isMe ? '${user['name']}' : shortName(person?['name']),
+        person?['initials'] ?? '?',
+      );
       return {
         'position': index + 1,
-        'name': isMe ? '${user['name']}' : shortName(person?['name']),
-        'initials': person?['initials'] ?? '?',
+        'name': name,
+        'initials': initials,
         'neighborhood':
             showsNeighborhood ? (person ?? user)['neighborhood'] : null,
         'points': ranked[index].value,
@@ -1829,6 +1873,8 @@ class LocalApi {
     }
     final myLat = (user['lat'] as num?)?.toDouble();
     final myLon = (user['lon'] as num?)?.toDouble();
+    (Object?, Object?) shownAs(DbRow person) =>
+        _shownAs(person, user, shortName(person['name']), person['initials']);
     return {
       'center': {
         'lat': myLat ?? Places.cityCenter.lat,
@@ -1852,8 +1898,8 @@ class LocalApi {
               person['lon'] != null)
             {
               'id': person['id'],
-              'name': shortName(person['name']),
-              'initials': person['initials'],
+              'name': shownAs(person).$1,
+              'initials': shownAs(person).$2,
               'neighborhood': person['neighborhood'],
               'lat': person['lat'],
               'lon': person['lon'],
