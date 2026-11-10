@@ -8,6 +8,7 @@ import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_page_header.dart';
+import '../../../../core/widgets/reset_demo_dialog.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../widgets/edit_profile_dialog.dart';
 
@@ -154,12 +155,9 @@ class _PerfilPageState extends State<PerfilPage> {
 
   Future<void> _resetDemo() async {
     if (_resetting || _signingOut) return;
-    final confirmed = await _confirm(
-      title: 'Restaurar demonstração?',
-      message:
-          'Os dados deste aparelho serão apagados e a conta de demonstração '
-          'volta ao início. Depois, o app abre a tela de entrada.',
-      confirmLabel: 'Restaurar',
+    final confirmed = await confirmResetDemo(
+      context,
+      afterwards: 'Depois, o app abre a tela de entrada.',
     );
     if (!confirmed || !mounted) return;
     setState(() => _resetting = true);

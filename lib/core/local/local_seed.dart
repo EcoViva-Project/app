@@ -404,8 +404,18 @@ class LocalSeed {
     },
   ];
 
+  /// Chave, na tabela `app_meta`, do dia (`AAAA-MM-DD`, Brasília) em que a
+  /// demonstração foi criada.
+  static const String seededOnKey = 'demo_seeded_on';
+
   static Future<void> run(LocalApi api) async {
-    await api.db.bulk(() => _seed(api));
+    // Os dados são montados em volta deste dia; o app avisa quando a
+    // demonstração é de outro dia.
+    final seededOn = Economy.dateKey(api.now);
+    await api.db.bulk(() async {
+      await _seed(api);
+      await api.db.insert('app_meta', {'key': seededOnKey, 'value': seededOn});
+    });
   }
 
   /// Só o catálogo (ações, desafios, parceiros e recompensas), sem usuários.

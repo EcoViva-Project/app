@@ -107,15 +107,19 @@ class _PreferenciasPageState extends State<PreferenciasPage> {
                         icon: Icons.visibility_outlined,
                         title: 'Perfil visível para a comunidade',
                         subtitle:
-                            'Seu nome e suas publicações aparecem para os '
-                            'vizinhos.',
+                            'Ligado, seu nome aparece nas publicações, nos '
+                            'comentários e no ranking. Desligado, você '
+                            'aparece como "Alguém do bairro".',
                       ),
                       _divider,
                       _switch(
                         key: 'privacyLocation',
                         icon: Icons.map_outlined,
                         title: 'Aparecer no mapa da comunidade',
-                        subtitle: 'Só a região do bairro, nunca o endereço',
+                        subtitle:
+                            'Mostra só a região do seu bairro, nunca o '
+                            'endereço. Desligado, você sai do mapa dos '
+                            'vizinhos e seu bairro não aparece no ranking.',
                       ),
                     ],
                   ),

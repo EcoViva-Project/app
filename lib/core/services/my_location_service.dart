@@ -148,6 +148,10 @@ class MyLocationService extends ChangeNotifier {
   static const String _positionPrefix = 'eco_my_position_';
   static const String _introPrefix = 'eco_my_location_intro_';
 
+  /// Posição (e aviso) guardados por "Restaurar demonstração" para a próxima
+  /// conta que entrar neste aparelho. Não começa com os prefixos acima.
+  static const String _carryOverKey = 'eco_my_location_carry_over';
+
   DeviceLocator _locator = const GeolocatorDeviceLocator();
 
   SharedPreferences? _prefs;
@@ -199,6 +203,10 @@ class MyLocationService extends ChangeNotifier {
 
   /// Lê o que está guardado para a pessoa logada (uma vez por conta; depois
   /// vale o que está em memória, que é sempre gravado junto).
+  ///
+  /// Se "Restaurar demonstração" deixou uma posição guardada, a primeira
+  /// conta que entra fica com ela (quando não tem posição própria) e a
+  /// guarda é apagada: vale uma vez só.
   Future<void> load() async {
     final id = _currentUserId;
     if (id != null && id == _userId) return;
@@ -210,6 +218,35 @@ class MyLocationService extends ChangeNotifier {
         final raw = prefs.getString('$_positionPrefix$id');
         if (raw != null) position = MyPosition.fromJson(jsonDecode(raw));
         introSeen = prefs.getBool('$_introPrefix$id') ?? false;
+        final carried = prefs.getString(_carryOverKey);
+        if (carried != null) {
+          Object? data;
+          try {
+            data = jsonDecode(carried);
+          } catch (_) {
+            // Guarda estragada: só é apagada.
+          }
+          final writes = <Future<bool>>[];
+          final carriedPosition =
+              data is Map ? MyPosition.fromJson(data['position']) : null;
+          if (position == null && carriedPosition != null) {
+            position = carriedPosition;
+            writes.add(
+              prefs.setString(
+                '$_positionPrefix$id',
+                jsonEncode(position.toJson()),
+              ),
+            );
+          }
+          if (!introSeen && data is Map && data['introSeen'] == true) {
+            introSeen = true;
+            writes.add(prefs.setBool('$_introPrefix$id', true));
+          }
+          // Tudo trocado de uma vez, antes de esperar: outra leitura ao mesmo
+          // tempo já encontra a posição na chave da conta.
+          writes.add(prefs.remove(_carryOverKey));
+          await Future.wait(writes);
+        }
       } catch (_) {
         // Sem acesso ao armazenamento: fica a região do bairro.
       }
@@ -295,18 +332,42 @@ class MyLocationService extends ChangeNotifier {
     _set(null);
   }
 
-  /// Apaga a posição e o aviso de todas as contas deste aparelho
-  /// ("Restaurar demonstração").
-  Future<void> clearAll() async {
+  /// "Restaurar demonstração": apaga a posição e o aviso de todas as contas
+  /// deste aparelho, menos os da pessoa logada, que ficam guardados para a
+  /// próxima conta que entrar (na prática, a demonstração recriada).
+  ///
+  /// Na feira, a posição marcada à mão no salão sem GPS continua valendo
+  /// entre uma apresentação e outra, com a mesma origem e o mesmo horário.
+  Future<void> clearAllKeepingMine() async {
+    final id = _currentUserId;
+    MyPosition? mine;
+    var introSeen = false;
+    if (id != null && id == _userId) {
+      mine = _position;
+      introSeen = _introSeen;
+    }
     _generation++;
+    _userId = null; // a próxima [load] lê de novo (e adota a posição guardada)
     _position = null;
     _introSeen = false;
     try {
       final prefs = await _store;
+      if (id != null && mine == null && !introSeen) {
+        // Ainda não lida nesta execução do app: vem do armazenamento.
+        final raw = prefs.getString('$_positionPrefix$id');
+        if (raw != null) mine = MyPosition.fromJson(jsonDecode(raw));
+        introSeen = prefs.getBool('$_introPrefix$id') ?? false;
+      }
       for (final key in prefs.getKeys().toList()) {
         if (key.startsWith(_positionPrefix) || key.startsWith(_introPrefix)) {
           await prefs.remove(key);
         }
+      }
+      if (mine != null || introSeen) {
+        await prefs.setString(
+          _carryOverKey,
+          jsonEncode({'position': mine?.toJson(), 'introSeen': introSeen}),
+        );
       }
     } catch (_) {}
     notifyListeners();

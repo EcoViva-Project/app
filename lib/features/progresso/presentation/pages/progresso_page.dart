@@ -8,6 +8,7 @@ import '../../../../core/services/challenge_service.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/utils/impact_equivalents.dart';
 import '../../../../core/widgets/app_page_header.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/weekly_cap_card.dart';
@@ -96,6 +97,7 @@ class _ProgressoPageState extends State<ProgressoPage> {
 
   Widget _buildContent(BuildContext context, UserProgressService progress) {
     final history = ActionHistoryService.instance;
+    final water = WaterEquivalents.of(progress.litersSaved);
     const gap = SizedBox(height: 16);
 
     return Column(
@@ -120,6 +122,10 @@ class _ProgressoPageState extends State<ProgressoPage> {
           streakDays: progress.streakDays,
           bestStreak: progress.bestStreak,
         ),
+        if (water != null) ...[
+          const SizedBox(height: 12),
+          ProgressWaterCard(water: water),
+        ],
         gap,
         ProgressWeekChart(history: history),
         gap,
