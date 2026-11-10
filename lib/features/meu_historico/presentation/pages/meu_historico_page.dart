@@ -6,6 +6,7 @@ import '../../../../core/services/api_client.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/record_photo.dart';
 import '../../../../core/widgets/state_views.dart';
 
 /// Histórico de ações registradas e de bônus recebidos.
@@ -314,7 +315,13 @@ class _HistoryItem extends StatelessWidget {
     // Nos bônus, a observação gravada pela API só repete o rótulo acima
     // ("Bônus de conquista", "Bônus de desafio coletivo").
     if (record.isBonus && notes.toLowerCase().startsWith('bônus')) notes = '';
+    final photo = record.photo;
     final tags = <Widget>[
+      if (photo != null)
+        ProofBadge(
+          photo: photo,
+          onTap: () => showRecordPhoto(context, photo, title: record.title),
+        ),
       if (bonusLabel != null)
         _Tag(
           icon: Icons.card_giftcard,

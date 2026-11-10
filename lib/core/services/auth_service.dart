@@ -8,6 +8,7 @@ import 'challenge_service.dart';
 import 'community_service.dart';
 import 'neighborhood_service.dart';
 import 'notification_service.dart';
+import 'photo_proof.dart';
 import 'reward_service.dart';
 import 'session_service.dart';
 import 'user_progress_service.dart';
@@ -292,6 +293,7 @@ class AuthService extends ChangeNotifier {
   /// da conta, deixando o app pronto para a próxima apresentação.
   Future<void> resetDemo() async {
     await ApiClient.instance.post('/demo/reset');
+    PhotoProof.files.deleteAll().ignore(); // fotos de comprovação do aparelho
     await logout();
   }
 

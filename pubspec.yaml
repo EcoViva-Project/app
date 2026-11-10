@@ -15,9 +15,11 @@ dependencies:
   flutter_map: ^8.3.2
   go_router: ^16.2.1
   http: ^1.6.0
+  image_picker: ^1.2.4
   intl: any
   latlong2: ^0.10.1
   path: ^1.9.1
+  path_provider: ^2.1.6
   shared_preferences: ^2.5.6
   sqflite: ^2.4.5+1
 
@@ -31,6 +33,7 @@ flutter:
   assets:
     - assets/
     - assets/images/
+    - assets/fotos_exemplo/
     - assets/map/tiles/
   # As fontes entram só pela seção abaixo (quatro pesos). Listar a pasta em
   # `assets` empacotava também as 12 variações que o app não usa.

@@ -749,6 +749,8 @@ class LocalSeed {
     await register(2, todayAt(0.5), currentWeek: true);
     await register(3, todayAt(0.7), currentWeek: true);
 
+    await _attachExamplePhotos(api, clara);
+
     // Um cupom ainda válido, resgatado há três dias.
     await _redeem(
       api,
@@ -760,6 +762,36 @@ class LocalSeed {
     final people = await _seedNeighbors(api, today, weekStart);
     await _seedCommunity(api, clara, now, people);
     await _seedNotifications(api, clara, now, firstDay);
+  }
+
+  /// Fotos de exemplo (desenhadas pelo próprio projeto) para a demonstração
+  /// já mostrar o selo de comprovação: a ação de cada foto e o arquivo.
+  static const Map<int, String> examplePhotos = {
+    2: 'assets/fotos_exemplo/separacao.png',
+    3: 'assets/fotos_exemplo/bicicleta.png',
+    4: 'assets/fotos_exemplo/composteira.png',
+  };
+
+  /// Liga cada foto de exemplo ao registro mais recente da ação dela.
+  static Future<void> _attachExamplePhotos(LocalApi api, DbRow clara) async {
+    for (final entry in examplePhotos.entries) {
+      DbRow? latest;
+      for (final row in api.db.table('action_records')) {
+        if (row['user_id'] != clara['id'] || row['action_id'] != entry.key) {
+          continue;
+        }
+        if (latest == null ||
+            '${row['created_at']}'.compareTo('${latest['created_at']}') > 0) {
+          latest = row;
+        }
+      }
+      if (latest == null) continue;
+      await api.attachPhoto(
+        latest,
+        asset: entry.value,
+        at: DateTime.parse('${latest['created_at']}'),
+      );
+    }
   }
 
   /// Cria os moradores fictícios e as duas últimas semanas de ações deles,

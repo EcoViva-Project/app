@@ -1103,7 +1103,45 @@ class LocalApi {
     'quantity': row['quantity'],
     'notes': row['notes'],
     'dateTime': row['created_at'],
+    'photo': _photoJson(row),
   };
+
+  /// Foto de comprovação do registro: `null`, `{file}` ou `{asset}`.
+  Map<String, dynamic>? _photoJson(DbRow record) {
+    for (final photo in db.table('record_photos')) {
+      if (photo['record_id'] != record['id'] ||
+          photo['user_id'] != record['user_id']) {
+        continue;
+      }
+      final asset = photo['asset'];
+      if (asset is String && asset.isNotEmpty) return {'asset': asset};
+      final file = photo['file'];
+      if (file is String && file.isNotEmpty) return {'file': file};
+    }
+    return null;
+  }
+
+  /// Liga uma foto a um registro. É só um selo: não muda pontos, limites,
+  /// desafios nem conquistas.
+  Future<void> attachPhoto(
+    DbRow record, {
+    String? file,
+    String? asset,
+    DateTime? at,
+  }) async {
+    await db.insert('record_photos', {
+      'record_id': record['id'],
+      'user_id': record['user_id'],
+      'file': file,
+      'asset': asset,
+      'created_at': _iso(at ?? now),
+    });
+  }
+
+  /// Nome de arquivo simples, sem pastas (o app resolve a pasta na hora).
+  static final RegExp _photoFilePattern = RegExp(
+    r'^[A-Za-z0-9_-]{1,64}\.(jpg|png)$',
+  );
 
   List<Map<String, dynamic>> _listRecords(
     DbRow user,
@@ -1124,6 +1162,7 @@ class LocalApi {
     String? notes,
     DateTime? at,
     bool silent = false,
+    String? photoFile,
   }) async {
     final when = at ?? now;
     final usage = _usage(user, action, when);
@@ -1163,6 +1202,7 @@ class LocalApi {
       'created_at': _iso(when),
       'local_date': Economy.dateKey(when),
     });
+    if (photoFile != null) await attachPhoto(record, file: photoFile, at: when);
 
     final capReachedNow =
         weekBefore < Economy.weeklyCap &&
@@ -1221,12 +1261,18 @@ class LocalApi {
     }
     var notes = _clean(data['notes']);
     if (notes.length > 500) notes = notes.substring(0, 500);
+    final photo = data['photo'];
+    if (photo != null &&
+        (photo is! String || !_photoFilePattern.hasMatch(photo))) {
+      _fail(400, 'Não foi possível usar esta foto. Tente escolher outra.');
+    }
 
     final result = await registerAction(
       user,
       action,
       quantity: rawQuantity,
       notes: notes.isEmpty ? null : notes,
+      photoFile: photo as String?,
     );
     return {
       ...result,

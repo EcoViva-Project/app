@@ -71,6 +71,16 @@ const Map<String, String> localSchema = {
     notes TEXT,
     created_at TEXT NOT NULL,
     local_date TEXT NOT NULL''',
+  // Foto de comprovação de um registro (opcional, só um selo). Tabela própria
+  // para não mexer nas colunas de `action_records` de bancos já instalados.
+  // `file`: nome do arquivo na pasta de fotos do app; `asset`: foto de exemplo.
+  'record_photos': '''
+    id INTEGER PRIMARY KEY,
+    record_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    file TEXT,
+    asset TEXT,
+    created_at TEXT NOT NULL''',
   'notifications': '''
     id INTEGER PRIMARY KEY,
     user_id INTEGER NOT NULL,

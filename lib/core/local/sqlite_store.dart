@@ -9,9 +9,22 @@ import 'local_store.dart';
 /// reabrir o app. É apagado apenas ao desinstalar o app ou ao limpar os dados.
 class SqliteStore implements LocalStore {
   static const String fileName = 'ecoviva.db';
+
+  /// Continua 1 de propósito: tabelas novas entram pelo [_createTables] a cada
+  /// abertura, sem migração que possa falhar no aparelho.
   static const int schemaVersion = 1;
 
   Database? _db;
+
+  /// Cria as tabelas que faltam. Só usa `CREATE TABLE IF NOT EXISTS`: nunca
+  /// altera nem apaga tabelas ou colunas que já existem.
+  static Future<void> _createTables(Database db) async {
+    for (final entry in localSchema.entries) {
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS ${entry.key} (${entry.value})',
+      );
+    }
+  }
 
   Future<Database> _open() async {
     final existing = _db;
@@ -20,13 +33,10 @@ class SqliteStore implements LocalStore {
     final db = await openDatabase(
       path,
       version: schemaVersion,
-      onCreate: (db, version) async {
-        for (final entry in localSchema.entries) {
-          await db.execute(
-            'CREATE TABLE IF NOT EXISTS ${entry.key} (${entry.value})',
-          );
-        }
-      },
+      onCreate: (db, version) => _createTables(db),
+      // Também em bancos já existentes: um app atualizado por cima de uma
+      // versão anterior ganha aqui as tabelas novas, antes de qualquer leitura.
+      onOpen: _createTables,
     );
     _db = db;
     return db;

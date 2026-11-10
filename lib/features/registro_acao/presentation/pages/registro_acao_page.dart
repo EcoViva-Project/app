@@ -6,9 +6,12 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/services/action_catalog_service.dart';
 import '../../../../core/services/action_history_service.dart';
 import '../../../../core/services/api_client.dart';
+import '../../../../core/services/photo_picker.dart';
+import '../../../../core/services/photo_proof.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/record_photo.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/weekly_cap_card.dart';
 
@@ -33,6 +36,15 @@ class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
 
   int _quantity = 1;
   bool _submitting = false;
+
+  /// Foto de comprovação escolhida (caminho entregue pela câmera ou galeria).
+  /// Só é copiada para a pasta do app na hora de registrar.
+  String? _photoPath;
+
+  /// A foto veio da recuperação do Android (o app foi fechado com a câmera
+  /// aberta).
+  bool _photoRecovered = false;
+  bool _picking = false;
 
   /// Carga do catálogo pedida por esta tela.
   bool _loadingNow = false;
@@ -60,6 +72,54 @@ class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
         if (mounted) _progress.load().catchError((_) {});
       });
     }
+    if (PhotoProof.available) _recoverLostPhoto();
+  }
+
+  /// No Android, o sistema pode fechar o app enquanto a câmera está aberta;
+  /// a foto tirada fica guardada e volta aqui.
+  Future<void> _recoverLostPhoto() async {
+    try {
+      final path = await PhotoProof.picker.recoverLost();
+      if (path == null || !mounted || _photoPath != null) return;
+      setState(() {
+        _photoPath = path;
+        _photoRecovered = true;
+      });
+    } catch (_) {
+      // Sem foto recuperada: a tela segue normal.
+    }
+  }
+
+  Future<void> _pickPhoto(PhotoSource source) async {
+    if (_picking || _submitting) return;
+    setState(() => _picking = true);
+    try {
+      final path = await PhotoProof.picker.pick(source);
+      if (!mounted || path == null) return;
+      setState(() {
+        _photoPath = path;
+        _photoRecovered = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      showErrorSnackBar(
+        context,
+        error,
+        fallback:
+            source == PhotoSource.camera
+                ? 'Não foi possível abrir a câmera. Tente de novo.'
+                : 'Não foi possível abrir a galeria. Tente de novo.',
+      );
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
+  void _removePhoto() {
+    setState(() {
+      _photoPath = null;
+      _photoRecovered = false;
+    });
   }
 
   @override
@@ -134,17 +194,44 @@ class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
       _sent = (action: action, weeklyRoom: weeklyRoom);
     });
     final notes = _notesController.text.trim();
+
+    // A foto é copiada para a pasta do app só agora, para não sobrar arquivo
+    // de um registro que não aconteceu.
+    String? photo;
+    final photoPath = PhotoProof.available ? _photoPath : null;
+    if (photoPath != null) {
+      try {
+        photo = await PhotoProof.files.save(photoPath);
+      } catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _submitting = false;
+          _sent = null;
+        });
+        showErrorSnackBar(
+          context,
+          error,
+          fallback:
+              'Não foi possível guardar a foto. Tente de novo ou remova a foto para registrar sem ela.',
+        );
+        return;
+      }
+    }
+
     try {
       await ActionHistoryService.instance.submitAction(
         actionId: action.id,
         quantity: quantity,
         notes: notes.isEmpty ? null : notes,
+        photo: photo,
       );
       if (!mounted) return;
       // `_submitting` continua ligado: esta tela está saindo, e um segundo
       // toque durante a troca não pode registrar de novo.
       context.pushReplacement('/confirmacao-registro');
     } catch (error) {
+      // O registro não aconteceu: a cópia da foto não serve para nada.
+      if (photo != null) PhotoProof.files.delete(photo).ignore();
       if (!mounted) return;
       setState(() {
         _submitting = false;
@@ -295,6 +382,12 @@ class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
             _fieldLabel('Observações (opcional)'),
             const SizedBox(height: 6),
             _buildNotesField(),
+            if (PhotoProof.available) ...[
+              const SizedBox(height: 8),
+              _fieldLabel('Foto de comprovação (opcional)'),
+              const SizedBox(height: 6),
+              _buildPhotoField(),
+            ],
           ],
           const SizedBox(height: 20),
           FilledButton.icon(
@@ -547,6 +640,105 @@ class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
     );
   }
 
+  Widget _buildPhotoField() {
+    final path = _photoPath;
+    final enabled = !_submitting && !_picking;
+    final note = Text(
+      'A foto fica só neste celular e ainda não é conferida por ninguém. '
+      'Ela é um selo: não muda os pontos.',
+      style: AppTextStyles.bodySm.copyWith(color: AppColors.brandTextSecondary),
+    );
+
+    if (path == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _PhotoButton(
+                icon: Icons.photo_camera_outlined,
+                label: 'Tirar foto',
+                onPressed:
+                    enabled ? () => _pickPhoto(PhotoSource.camera) : null,
+              ),
+              _PhotoButton(
+                icon: Icons.photo_library_outlined,
+                label: 'Escolher da galeria',
+                onPressed:
+                    enabled ? () => _pickPhoto(PhotoSource.gallery) : null,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          note,
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.brandSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.brandBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                image: true,
+                label: 'Prévia da foto de comprovação',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    key: const ValueKey<String>('registro-foto-previa'),
+                    width: 88,
+                    height: 88,
+                    child: PickedPhotoPreview(path: path, cacheWidth: 264),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _photoRecovered
+                          ? 'Recuperamos a foto que você tinha tirado.'
+                          : 'Foto pronta para o registro.',
+                      style: AppTextStyles.bodyMd.copyWith(
+                        color: AppColors.brandTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    TextButton.icon(
+                      onPressed: _submitting ? null : _removePhoto,
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      label: const Text('Remover foto'),
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          note,
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotesField() {
     OutlineInputBorder border(Color color, [double width = 1]) {
       return OutlineInputBorder(
@@ -578,6 +770,32 @@ class _RegistroAcaoPageState extends State<RegistroAcaoPage> {
         enabledBorder: border(AppColors.brandBorder),
         disabledBorder: border(AppColors.brandBorder),
         focusedBorder: border(AppColors.brandDarkAccent, 1.5),
+      ),
+    );
+  }
+}
+
+class _PhotoButton extends StatelessWidget {
+  const _PhotoButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 20),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(48, 48),
+        backgroundColor: AppColors.brandSurface,
+        textStyle: AppTextStyles.labelLg,
       ),
     );
   }

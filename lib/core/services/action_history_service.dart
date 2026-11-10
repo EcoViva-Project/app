@@ -10,6 +10,7 @@ import 'challenge_service.dart';
 import 'icon_catalog.dart';
 import 'neighborhood_service.dart';
 import 'notification_service.dart';
+import 'photo_proof.dart';
 import 'user_progress_service.dart';
 
 /// Um lançamento do histórico: ação registrada ou bônus.
@@ -26,6 +27,7 @@ class ActionRecord {
     this.kind = 'action',
     this.notes,
     this.quantity = 1,
+    this.photo,
   });
 
   final String id;
@@ -46,6 +48,9 @@ class ActionRecord {
   final String kind;
   final String? notes;
   final int quantity;
+
+  /// Foto de comprovação (opcional; não muda os pontos).
+  final RecordPhoto? photo;
 
   bool get isAction => kind == 'action';
 
@@ -69,6 +74,7 @@ class ActionRecord {
       kind: json['kind'] as String? ?? 'action',
       notes: json['notes'] as String?,
       quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      photo: RecordPhoto.fromApi(json['photo']),
     );
   }
 }
@@ -181,11 +187,13 @@ class ActionHistoryService extends ChangeNotifier {
     required int actionId,
     required int quantity,
     String? notes,
+    String? photo,
   }) async {
     final data =
         await ApiClient.instance.post('/actions/$actionId/records', {
               'quantity': quantity,
               if (notes != null && notes.isNotEmpty) 'notes': notes,
+              if (photo != null) 'photo': photo,
             })
             as Map<String, dynamic>;
 

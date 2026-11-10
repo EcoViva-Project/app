@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/services/achievement_service.dart';
 import '../../../../core/services/action_history_service.dart';
 import '../../../../core/services/challenge_service.dart';
+import '../../../../core/services/photo_proof.dart';
 import '../../../../core/services/user_progress_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/record_photo.dart';
 import '../../../../core/widgets/state_views.dart';
 import '../../../../core/widgets/weekly_cap_card.dart';
 
@@ -118,6 +120,10 @@ class _ConfirmationContent extends StatelessWidget {
               color: AppColors.brandTextPrimary,
             ),
           ),
+          if (record.photo != null) ...[
+            const SizedBox(height: 16),
+            _PhotoCard(photo: record.photo!, title: record.title),
+          ],
           const SizedBox(height: 20),
           _Card(
             child: Column(
@@ -216,6 +222,58 @@ class _Card extends StatelessWidget {
         border: Border.all(color: AppColors.brandBorder),
       ),
       child: child,
+    );
+  }
+}
+
+/// Miniatura da foto de comprovação com o selo. Tocar abre a foto inteira.
+class _PhotoCard extends StatelessWidget {
+  const _PhotoCard({required this.photo, required this.title});
+
+  final RecordPhoto photo;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    void open() => showRecordPhoto(context, photo, title: title);
+    return _Card(
+      child: Row(
+        children: [
+          Semantics(
+            button: true,
+            label: 'Ver a foto de comprovação',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: open,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  key: const ValueKey<String>('confirmacao-foto'),
+                  width: 72,
+                  height: 72,
+                  child: RecordPhotoImage(photo: photo, cacheWidth: 216),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ProofBadge(onTap: open),
+                const SizedBox(height: 6),
+                Text(
+                  'A foto fica só neste celular e não muda os pontos.',
+                  style: AppTextStyles.bodySm.copyWith(
+                    color: AppColors.brandTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
