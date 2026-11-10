@@ -663,6 +663,44 @@ void main() {
       expect(after['myWeeklyPoints'], 380);
     });
 
+    test('ao abrir, refaz a posição de contas antigas pelo bairro', () async {
+      (Object?, Object?) spot(Map<String, dynamic> u) => (u['lat'], u['lon']);
+      final users = h.db.table('users');
+      final before = {for (final u in users) u['id']: spot(u)};
+
+      // Duas contas como as versões anteriores deixavam: bairro abreviado e
+      // bairro inventado, ambos no centro da cidade.
+      final abbreviated = users[1];
+      final unknown = users[2];
+      for (final (row, name) in [
+        (abbreviated, 'Jd. Nazareth'),
+        (unknown, 'Bairro Inventado'),
+      ]) {
+        await h.db.update('users', row, {
+          'neighborhood': name,
+          'lat': Places.cityCenter.lat,
+          'lon': Places.cityCenter.lon,
+        });
+      }
+
+      // O app abre de novo sobre o mesmo banco.
+      final reopened = LocalApi(h.db, clock: () => h.clock, random: Random(7));
+      await reopened.ensureReady();
+
+      final fixed =
+          Places.approximatePosition(
+            'Jardim Nazareth',
+            '${abbreviated['email']}',
+          )!;
+      expect(spot(abbreviated), (fixed.lat, fixed.lon));
+      expect(spot(unknown), (null, null));
+      // Quem já estava certo não muda.
+      for (final u in users) {
+        if (u['id'] == abbreviated['id'] || u['id'] == unknown['id']) continue;
+        expect(spot(u), before[u['id']], reason: '${u['name']}');
+      }
+    });
+
     test('ranking não mostra o bairro de quem saiu do mapa', () async {
       Future<List> ranking() async =>
           (await h.call('GET', '/community/stats'))['ranking'] as List;

@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../local/places.dart';
 import 'api_client.dart';
 import 'icon_catalog.dart';
+import 'my_location_service.dart';
 
 import 'package:flutter/material.dart' show IconData, Icons;
 
@@ -183,7 +185,8 @@ class CollectionPoint {
   final double? lat;
   final double? lon;
 
-  /// Distância a partir da posição aproximada do usuário.
+  /// Distância a partir da posição do usuário: a exata, quando ele tem uma
+  /// neste aparelho, ou a região do bairro.
   final int? distanceMeters;
 
   /// `alta`, `média` ou `baixa`, conforme o levantamento.
@@ -257,6 +260,26 @@ class CollectionPoint {
     if (key.contains('vidro')) return Icons.wine_bar_outlined;
     return Icons.recycling;
   }
+
+  /// O mesmo ponto com outra distância.
+  CollectionPoint withDistance(int? meters) => CollectionPoint(
+    id: id,
+    name: name,
+    type: type,
+    materials: materials,
+    address: address,
+    neighborhood: neighborhood,
+    hours: hours,
+    phone: phone,
+    responsible: responsible,
+    lat: lat,
+    lon: lon,
+    distanceMeters: meters,
+    confidence: confidence,
+    sourceUrl: sourceUrl,
+    sourceDate: sourceDate,
+    notes: notes,
+  );
 
   factory CollectionPoint.fromApi(Map<String, dynamic> json) => CollectionPoint(
     id: (json['id'] as num?)?.toInt() ?? 0,
@@ -385,12 +408,22 @@ class DailyTip {
 /// Os números são calculados pela API sobre os registros de todos os
 /// usuários; nada aqui é fixo no código.
 class NeighborhoodService extends ChangeNotifier {
-  NeighborhoodService._();
+  NeighborhoodService._() {
+    MyLocationService.instance.addListener(_onMyPositionChanged);
+  }
 
   static final NeighborhoodService instance = NeighborhoodService._();
 
   CommunityStats? _stats;
+
+  /// Pontos como a API mandou (distâncias a partir da região do bairro).
+  List<CollectionPoint> _apiPoints = const [];
+
+  /// [_apiPoints] com as distâncias a partir da posição exata, se houver.
   List<CollectionPoint> _points = const [];
+
+  /// Posição usada no cálculo de [_points].
+  ({double lat, double lon})? _pointsFrom;
   DailyTip? _tip;
   CommunityMapData? _map;
   bool _loaded = false;
@@ -401,6 +434,56 @@ class NeighborhoodService extends ChangeNotifier {
 
   /// Pontos de coleta, do mais perto para o mais longe.
   List<CollectionPoint> get collectionPoints => _points;
+
+  /// As distâncias são medidas a partir da posição exata da pessoa (e não da
+  /// região do bairro).
+  bool get distancesFromMyPosition =>
+      MyLocationService.instance.hasExactPosition;
+
+  static ({double lat, double lon})? get _myPosition {
+    final position = MyLocationService.instance.position;
+    return position == null ? null : (lat: position.lat, lon: position.lon);
+  }
+
+  /// [points] com a distância recalculada a partir da posição exata da
+  /// pessoa e reordenados do mais perto ao mais longe. Sem posição exata,
+  /// ficam como a API mandou (a partir da região do bairro).
+  ///
+  /// A API continua respondendo pela região do bairro: a posição exata
+  /// nunca sai do aparelho, então a conta é feita aqui.
+  static List<CollectionPoint> withMyDistances(List<CollectionPoint> points) {
+    final me = _myPosition;
+    if (me == null) return points;
+    final result = [
+      for (final point in points)
+        point.withDistance(
+          point.hasPosition
+              ? Places.distanceMeters(me.lat, me.lon, point.lat!, point.lon!)
+              : null,
+        ),
+    ];
+    result.sort((a, b) {
+      final first = a.distanceMeters;
+      final second = b.distanceMeters;
+      if (first == null && second == null) return a.name.compareTo(b.name);
+      if (first == null) return 1;
+      if (second == null) return -1;
+      final byDistance = first.compareTo(second);
+      return byDistance != 0 ? byDistance : a.name.compareTo(b.name);
+    });
+    return List.unmodifiable(result);
+  }
+
+  void _applyMyPosition() {
+    _pointsFrom = _myPosition;
+    _points = withMyDistances(_apiPoints);
+  }
+
+  void _onMyPositionChanged() {
+    if (_myPosition == _pointsFrom) return;
+    _applyMyPosition();
+    notifyListeners();
+  }
 
   /// Aviso de origem dos pontos de coleta, para mostrar junto das listas e do
   /// mapa: "Pontos de coleta: fontes públicas consultadas em 09/11/2026.
@@ -446,11 +529,14 @@ class NeighborhoodService extends ChangeNotifier {
         ApiClient.instance.get('/collection-points'),
         ApiClient.instance.get('/tips/today'),
       ]);
+      // Posição exata guardada neste aparelho, para as distâncias.
+      await MyLocationService.instance.load();
       _stats = CommunityStats.fromApi(results[0] as Map<String, dynamic>);
-      _points = List.unmodifiable([
+      _apiPoints = List.unmodifiable([
         for (final item in (results[1]['points'] as List?) ?? const [])
           CollectionPoint.fromApi(item as Map<String, dynamic>),
       ]);
+      _applyMyPosition();
       final tip = results[2]['tip'];
       _tip = tip is Map<String, dynamic> ? DailyTip.fromApi(tip) : null;
       _loaded = true;
@@ -480,7 +566,9 @@ class NeighborhoodService extends ChangeNotifier {
 
   void reset() {
     _stats = null;
+    _apiPoints = const [];
     _points = const [];
+    _pointsFrom = null;
     _tip = null;
     _map = null;
     _loaded = false;

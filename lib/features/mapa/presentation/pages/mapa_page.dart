@@ -8,19 +8,28 @@ import 'package:latlong2/latlong.dart';
 
 import '../../../../core/services/api_exception.dart';
 import '../../../../core/services/auth_service.dart';
+import '../../../../core/services/device_locator.dart';
+import '../../../../core/services/my_location_service.dart';
 import '../../../../core/services/neighborhood_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_page_header.dart';
 import '../../../../core/widgets/state_views.dart';
+import '../../../perfil/presentation/widgets/edit_profile_dialog.dart';
 import '../widgets/base_map.dart';
 import '../widgets/map_markers.dart';
 import '../widgets/map_sheets.dart';
+import '../widgets/my_position_sheets.dart';
 import '../widgets/point_types.dart';
 import '../widgets/points_cluster_layer.dart';
 
 /// Mapa da comunidade: pontos de coleta e vizinhos (em posição aproximada)
 /// sobre um mapa-base em imagens embutidas no app, sem internet.
+///
+/// A própria pessoa aparece na posição exata quando o celular a informa (ou
+/// quando ela marca no mapa); essa posição fica só no aparelho, ver
+/// [MyLocationService]. Sem ela, aparece na região do bairro, como os
+/// vizinhos a veem.
 class MapaPage extends StatefulWidget {
   const MapaPage({super.key});
 
@@ -67,6 +76,26 @@ class _MapaPageState extends State<MapaPage> {
   Widget? _neighborsLayer;
   Widget? _meLayer;
 
+  final MyLocationService _myLocation = MyLocationService.instance;
+
+  /// Posição e tipo com que [_meLayer] foi montada: a camada só é refeita
+  /// quando a posição muda de fato.
+  LatLng? _mePoint;
+  bool _meExact = false;
+
+  /// A pessoa já arrastou ou ampliou o mapa com o dedo: a posição que chega
+  /// do celular não move mais a câmera sozinha.
+  bool _userMovedMap = false;
+
+  /// Modo "Ajustar no mapa": o próximo toque no mapa marca a posição.
+  bool _adjusting = false;
+
+  /// A localização automática da abertura já foi disparada.
+  bool _autoLocateStarted = false;
+
+  /// O mapa já foi desenhado e a câmera pode ser movida.
+  bool _mapReady = false;
+
   /// Animação de entrada desta tela (ver [_routeTransitionDone]).
   Animation<double>? _routeAnimation;
 
@@ -79,11 +108,13 @@ class _MapaPageState extends State<MapaPage> {
   @override
   void initState() {
     super.initState();
+    _myLocation.addListener(_onMyLocationChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
   void dispose() {
+    _myLocation.removeListener(_onMyLocationChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -112,10 +143,7 @@ class _MapaPageState extends State<MapaPage> {
   /// Começa a carregar as imagens da área inicial, para o mapa já aparecer
   /// completo.
   void _precacheInitialTiles(Set<String> available, CommunityMapData data) {
-    final center = _clamp(
-      LatLng(data.myLat ?? data.centerLat, data.myLon ?? data.centerLon),
-      BaseMap.bounds,
-    );
+    final center = _clamp(_homeFor(data), BaseMap.bounds);
     final assets = BaseMap.tilesAround(center, _initialZoom.round(), available);
     for (final asset in assets) {
       unawaited(precacheImage(AssetImage(asset), context, onError: (_, _) {}));
@@ -129,10 +157,12 @@ class _MapaPageState extends State<MapaPage> {
       _error = null;
     });
     try {
+      final myPosition = _myLocation.load();
       final results = await Future.wait<Object>([
         BaseMap.loadTiles(),
         NeighborhoodService.instance.loadMap(),
       ]);
+      await myPosition;
       if (!mounted) return;
       final available = results[0] as Set<String>;
       final data = results[1] as CommunityMapData;
@@ -190,11 +220,13 @@ class _MapaPageState extends State<MapaPage> {
       NeighborhoodService.sourceLabelFor(data.points) ??
       NeighborhoodService.instance.pointsSourceLabel;
 
-  /// Pontos para a lista, com o mesmo filtro de escolas do mapa.
-  List<CollectionPoint> _listPoints(CommunityMapData data) => [
-    for (final point in data.points)
-      if (_showSchools || !isSchoolPoint(point)) point,
-  ];
+  /// Pontos para a lista, com o mesmo filtro de escolas do mapa e a
+  /// distância a partir da posição exata, quando houver.
+  List<CollectionPoint> _listPoints(CommunityMapData data) =>
+      NeighborhoodService.withMyDistances([
+        for (final point in data.points)
+          if (_showSchools || !isSchoolPoint(point)) point,
+      ]);
 
   void _toggleType(String type, bool visible) {
     setState(() {
@@ -249,27 +281,200 @@ class _MapaPageState extends State<MapaPage> {
           ),
       ],
     );
-    final myLat = data.myLat;
-    final myLon = data.myLon;
+    _mePoint = null;
+    _meLayer = null;
+    _rebuildMeLayer(data);
+  }
+
+  /// Posição do próprio marcador: a exata, se houver; senão a região do
+  /// bairro; `null` se o bairro não foi reconhecido.
+  LatLng? _ownPosition(CommunityMapData data) {
+    final exact = _myLocation.position;
+    if (exact != null) return LatLng(exact.lat, exact.lon);
+    final lat = data.myLat;
+    final lon = data.myLon;
+    return lat == null || lon == null ? null : LatLng(lat, lon);
+  }
+
+  /// Refaz a camada "você" só se a posição (ou o tipo dela) mudou.
+  void _rebuildMeLayer(CommunityMapData data) {
+    final point = _ownPosition(data);
+    final exact = _myLocation.hasExactPosition;
+    if (point == _mePoint && exact == _meExact && _meLayer != null) return;
+    _mePoint = point;
+    _meExact = exact;
     _meLayer =
-        myLat == null || myLon == null
+        point == null
             ? null
             : MarkerLayer(
               key: const ValueKey('mapa-voce'),
               markers: [
                 Marker(
-                  point: LatLng(myLat, myLon),
-                  width: kMapMarkerSize,
-                  height: kMapMarkerSize,
-                  child: MeMarker(initials: AuthService.instance.userInitials),
+                  key: const ValueKey('mapa-voce-marcador'),
+                  point: point,
+                  width: kMeMarkerWidth,
+                  height: kMeMarkerHeight,
+                  child: MeMarker(
+                    initials: AuthService.instance.userInitials,
+                    exact: exact,
+                    onPressed: _openMeSheet,
+                  ),
                 ),
               ],
             );
   }
 
-  LatLng get _homePosition {
-    final data = _data!;
-    return LatLng(data.myLat ?? data.centerLat, data.myLon ?? data.centerLon);
+  void _onMyLocationChanged() {
+    if (!mounted) return;
+    setState(() {
+      final data = _data;
+      if (data != null) _rebuildMeLayer(data);
+    });
+  }
+
+  LatLng _homeFor(CommunityMapData data) =>
+      _ownPosition(data) ?? LatLng(data.centerLat, data.centerLon);
+
+  LatLng get _homePosition => _homeFor(_data!);
+
+  void _showMessage(String text, {bool offerAdjust = false}) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(text),
+          action:
+              offerAdjust
+                  ? SnackBarAction(
+                    label: 'Ajustar no mapa',
+                    onPressed: _startAdjusting,
+                  )
+                  : null,
+        ),
+      );
+  }
+
+  /// Ao abrir: se a permissão já foi dada, procura a localização sem
+  /// perguntar nada. Se nunca foi pedida, explica uma vez para que serve
+  /// antes do pedido do sistema. "Agora não" fica guardado e não volta.
+  Future<void> _startAutoLocate() async {
+    if (_autoLocateStarted) return;
+    _autoLocateStarted = true;
+    final current = _myLocation.position;
+    if (current != null && current.isManual) return;
+    final permission = await _myLocation.permission();
+    if (!mounted) return;
+    if (permission == LocatorPermission.granted) {
+      await _locate(automatic: true);
+      return;
+    }
+    if (permission != LocatorPermission.denied || _myLocation.introSeen) return;
+    await _myLocation.markIntroSeen();
+    if (!mounted) return;
+    final accepted = await showLocationIntroSheet(context);
+    if (accepted && mounted) await _locate();
+  }
+
+  /// Procura a localização do celular e conta à pessoa se não deu certo.
+  ///
+  /// [automatic]: a atualização da abertura, que não pergunta permissão e
+  /// mantém uma posição marcada à mão. [center]: centraliza no fim mesmo que
+  /// a pessoa já tenha mexido no mapa.
+  Future<void> _locate({bool automatic = false, bool center = false}) async {
+    final hadExact = _myLocation.hasExactPosition;
+    final result = await _myLocation.locate(
+      automatic: automatic,
+      askPermission: !automatic,
+    );
+    if (!mounted || _data == null) return;
+    if (_mapReady &&
+        (center || (!_userMovedMap && _myLocation.hasExactPosition))) {
+      _controller.move(
+        _clamp(_homePosition, BaseMap.bounds),
+        center
+            ? math.max(_controller.camera.zoom, 14.0)
+            : _controller.camera.zoom,
+      );
+    }
+    // Atualização automática que falha sem mudar nada: fica quieta.
+    if (automatic && hadExact) return;
+    final fallback =
+        _myLocation.hasExactPosition
+            ? 'mantivemos sua posição anterior'
+            : _data!.myLat != null
+            ? 'seguimos com a região do seu bairro'
+            : 'você pode marcar onde está em "Ajustar no mapa"';
+    final message = result.message(fallback: fallback);
+    if (message != null) _showMessage(message, offerAdjust: true);
+  }
+
+  /// "Ajustar no mapa": o próximo toque no mapa marca a posição.
+  void _startAdjusting() {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    setState(() => _adjusting = true);
+  }
+
+  void _cancelAdjusting() => setState(() => _adjusting = false);
+
+  void _onMapTap(TapPosition _, LatLng point) {
+    if (!_adjusting) return;
+    if (!_myLocation.setManual(point.latitude, point.longitude)) {
+      _showMessage('Esse ponto fica fora do mapa de Rio Preto.');
+      return;
+    }
+    setState(() => _adjusting = false);
+    _showMessage('Posição ajustada. $kExactPositionPrivacy');
+  }
+
+  /// Com o mapa na tela, procura a localização (ver [_startAutoLocate]).
+  void _onMapReady() {
+    _mapReady = true;
+    unawaited(_startAutoLocate());
+  }
+
+  void _onCameraChanged(MapCamera camera, bool hasGesture) {
+    if (hasGesture) _userMovedMap = true;
+  }
+
+  /// Folha "Você": de onde vem a posição e o que dá para fazer.
+  Future<void> _openMeSheet() async {
+    final position = _myLocation.position;
+    final neighborhood = AuthService.instance.neighborhood.trim();
+    final source =
+        position == null
+            ? (neighborhood.isEmpty
+                ? 'região do seu bairro'
+                : 'região do bairro $neighborhood')
+            : position.isManual
+            ? 'ajustada por você'
+            : 'pela localização do celular';
+    final choice = await showMyPositionSheet(
+      context,
+      sourceLabel: source,
+      hasExactPosition: position != null,
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case MyPositionChoice.useLocation:
+        await _locate(center: true);
+      case MyPositionChoice.adjust:
+        _startAdjusting();
+      case MyPositionChoice.backToRegion:
+        _myLocation.clear();
+      case null:
+        break;
+    }
+  }
+
+  /// Bairro fora da lista: abre a edição do perfil e recarrega o mapa.
+  Future<void> _editProfile() async {
+    final saved = await showEditProfileDialog(context);
+    if (!saved || !mounted) return;
+    await _load();
+    if (mounted && _mapReady && _mePoint != null) _centerOnMe();
   }
 
   /// Mantém um ponto dentro da área do mapa-base.
@@ -287,6 +492,17 @@ class _MapaPageState extends State<MapaPage> {
   void _centerOnMe() {
     final zoom = math.max(_controller.camera.zoom, 14.0);
     _controller.move(_clamp(_homePosition, BaseMap.bounds), zoom);
+  }
+
+  /// Botão "centralizar em mim": procura a localização e depois centraliza.
+  /// Uma posição marcada à mão é mantida.
+  void _onCenterPressed() {
+    final current = _myLocation.position;
+    if (current != null && current.isManual) {
+      _centerOnMe();
+      return;
+    }
+    unawaited(_locate(center: true));
   }
 
   void _openPoint(CollectionPoint point) {
@@ -341,6 +557,32 @@ class _MapaPageState extends State<MapaPage> {
                 sourceLabel: _sourceLabel(data),
               ),
         ),
+        if (_adjusting)
+          _MapBanner(
+            key: const ValueKey('mapa-ajustar'),
+            icon: Icons.touch_app_outlined,
+            text: 'Toque no mapa onde você está',
+            actions: [
+              _BannerAction(label: 'Cancelar', onPressed: _cancelAdjusting),
+            ],
+          )
+        else if (data.myLat == null &&
+            !_myLocation.hasExactPosition &&
+            AuthService.instance.neighborhood.trim().isNotEmpty)
+          _MapBanner(
+            key: const ValueKey('mapa-bairro-desconhecido'),
+            icon: Icons.wrong_location_outlined,
+            text:
+                'Não achamos o bairro "${AuthService.instance.neighborhood.trim()}" '
+                'na lista de Rio Preto, por isso você não aparece no mapa.',
+            actions: [
+              _BannerAction(label: 'Editar perfil', onPressed: _editProfile),
+              _BannerAction(
+                label: 'Usar minha localização',
+                onPressed: () => _locate(center: true),
+              ),
+            ],
+          ),
         if (_showPoints && (_typeCounts.isNotEmpty || _schoolCount > 0))
           _TypeFilterBar(
             counts: _typeCounts,
@@ -382,11 +624,16 @@ class _MapaPageState extends State<MapaPage> {
                           horizontal: constraints.maxHeight < 220,
                           onZoomIn: () => _zoomBy(1),
                           onZoomOut: () => _zoomBy(-1),
-                          onCenter: _centerOnMe,
-                          hasMyPosition:
-                              data.myLat != null && data.myLon != null,
+                          onCenter: _onCenterPressed,
+                          hasMyPosition: _mePoint != null,
                         ),
                       ),
+                      if (_myLocation.locating)
+                        const Positioned(
+                          right: 8,
+                          bottom: 8,
+                          child: _LocatingLabel(),
+                        ),
                       Positioned(
                         left: 8,
                         bottom: 8,
@@ -401,7 +648,10 @@ class _MapaPageState extends State<MapaPage> {
             ),
           ),
         ),
-        _PrivacyNotice(visibleToOthers: data.visibleToOthers),
+        _PrivacyNotice(
+          visibleToOthers: data.visibleToOthers,
+          exactPosition: _myLocation.hasExactPosition,
+        ),
       ],
     );
   }
@@ -421,6 +671,9 @@ class _MapaPageState extends State<MapaPage> {
           maxZoom: _maxZoom,
           backgroundColor: BaseMap.land,
           cameraConstraint: CameraConstraint.containCenter(bounds: bounds),
+          onTap: _onMapTap,
+          onPositionChanged: _onCameraChanged,
+          onMapReady: _onMapReady,
           interactionOptions: const InteractionOptions(
             flags:
                 InteractiveFlag.drag |
@@ -738,9 +991,15 @@ class _AttributionLabel extends StatelessWidget {
 }
 
 class _PrivacyNotice extends StatelessWidget {
-  const _PrivacyNotice({required this.visibleToOthers});
+  const _PrivacyNotice({
+    required this.visibleToOthers,
+    required this.exactPosition,
+  });
 
   final bool visibleToOthers;
+
+  /// A posição exata (só deste aparelho) está em uso.
+  final bool exactPosition;
 
   @override
   Widget build(BuildContext context) {
@@ -773,8 +1032,10 @@ class _PrivacyNotice extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'As pessoas aparecem só na região do bairro, nunca no '
-                        'endereço.',
+                        exactPosition
+                            ? kExactPositionPrivacy
+                            : 'As pessoas aparecem só na região do bairro, '
+                                'nunca no endereço.',
                         style: style,
                       ),
                     ),
@@ -808,6 +1069,121 @@ class _PrivacyNotice extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Faixa de aviso acima do mapa, com botões.
+class _MapBanner extends StatelessWidget {
+  const _MapBanner({
+    super.key,
+    required this.icon,
+    required this.text,
+    required this.actions,
+  });
+
+  final IconData icon;
+  final String text;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
+      decoration: BoxDecoration(
+        color: AppColors.brandSecondaryContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.brandBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Semantics(
+            liveRegion: true,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ExcludeSemantics(
+                  child: Icon(icon, size: 20, color: AppColors.brandDarkAccent),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: AppTextStyles.bodyMd.copyWith(
+                      color: AppColors.brandTextPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Wrap(alignment: WrapAlignment.end, children: actions),
+        ],
+      ),
+    );
+  }
+}
+
+class _BannerAction extends StatelessWidget {
+  const _BannerAction({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.brandDarkAccent,
+        minimumSize: const Size(48, 48),
+      ),
+      child: Text(label),
+    );
+  }
+}
+
+/// "Localizando…", discreto, enquanto o celular procura a posição.
+class _LocatingLabel extends StatelessWidget {
+  const _LocatingLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      label: 'Localizando',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.brandSurface,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppColors.brandBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Camada própria: o giro não redesenha o resto da tela.
+            const RepaintBoundary(
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Localizando…',
+              style: AppTextStyles.bodySm.copyWith(
+                color: AppColors.brandTextPrimary,
+              ),
+            ),
+          ],
         ),
       ),
     );

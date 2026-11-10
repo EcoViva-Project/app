@@ -65,7 +65,9 @@ class CollectionPointsSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'As distâncias são medidas a partir da região do seu bairro.',
+          NeighborhoodService.instance.distancesFromMyPosition
+              ? 'As distâncias são medidas a partir da sua localização.'
+              : 'As distâncias são medidas a partir da região do seu bairro.',
           style: AppTextStyles.bodySm.copyWith(
             color: AppColors.brandTextSecondary,
           ),

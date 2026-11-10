@@ -29,7 +29,39 @@ class LocalApi {
   /// Abre o banco e, se estiver vazio, cria os dados de demonstração.
   Future<void> ensureReady() async {
     if (!db.isOpen) await db.open();
-    if (db.isEmpty) await LocalSeed.run(this);
+    if (db.isEmpty) {
+      await LocalSeed.run(this);
+      _positionsChecked = true;
+    } else if (!_positionsChecked) {
+      _positionsChecked = true;
+      await _refreshApproximatePositions();
+    }
+  }
+
+  bool _positionsChecked = false;
+
+  /// Refaz, uma vez por execução do app, a posição aproximada de quem já
+  /// estava no banco.
+  ///
+  /// A posição depende só do bairro e do e-mail, então refazer a conta não
+  /// muda nada para quem já estava certo. Corrige contas criadas por versões
+  /// anteriores, em que um bairro não reconhecido caía, sem aviso, no centro
+  /// da cidade: agora elas ganham a posição do bairro (se o nome passou a ser
+  /// reconhecido) ou ficam sem posição, e o app avisa.
+  Future<void> _refreshApproximatePositions() async {
+    for (final user in List.of(db.table('users'))) {
+      final position = Places.approximatePosition(
+        '${user['neighborhood'] ?? ''}',
+        '${user['email']}',
+      );
+      final lat = (user['lat'] as num?)?.toDouble();
+      final lon = (user['lon'] as num?)?.toDouble();
+      if (lat == position?.lat && lon == position?.lon) continue;
+      await db.update('users', user, {
+        'lat': position?.lat,
+        'lon': position?.lon,
+      });
+    }
   }
 
   /// Apaga tudo e recria os dados de demonstração.
@@ -363,8 +395,9 @@ class LocalApi {
       'complement': complement,
       'city': (city == null || city.isEmpty) ? Places.defaultCity : city,
       'state': (state == null || state.isEmpty) ? Places.defaultState : state,
-      'lat': position.lat,
-      'lon': position.lon,
+      // Sem posição quando o bairro não está na lista (ver Places).
+      'lat': position?.lat,
+      'lon': position?.lon,
       'initials': initialsFor(name),
       'monthly_goal': 17,
       'weekly_goal': 5,
@@ -565,8 +598,8 @@ class LocalApi {
         neighborhood,
         '${user['email']}',
       );
-      values['lat'] = position.lat;
-      values['lon'] = position.lon;
+      values['lat'] = position?.lat;
+      values['lon'] = position?.lon;
     }
     final address = _addressFrom(data);
     for (final key in [

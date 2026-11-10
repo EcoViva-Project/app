@@ -6,6 +6,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/local/places.dart';
+
 /// Mapa-base offline de São José do Rio Preto.
 ///
 /// O fundo do mapa (vias principais, rios e lagos) vem pronto, em imagens
@@ -27,10 +29,11 @@ abstract final class BaseMap {
   static const int minNativeZoom = 11;
   static const int maxNativeZoom = 16;
 
-  /// Área coberta pelas imagens; a câmera fica presa dentro dela.
+  /// Área coberta pelas imagens; a câmera fica presa dentro dela. Os números
+  /// ficam em [Places.mapArea], que também vale para a posição da pessoa.
   static final LatLngBounds bounds = LatLngBounds(
-    const LatLng(-20.93, -49.5),
-    const LatLng(-20.7, -49.28),
+    LatLng(Places.mapArea.south, Places.mapArea.west),
+    LatLng(Places.mapArea.north, Places.mapArea.east),
   );
 
   /// Cor do terreno: fundo do mapa e das imagens.
