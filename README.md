@@ -102,6 +102,17 @@ O raciocínio dos números está em `ECONOMIA-DE-PONTOS.md`, e o plano para o us
 
 **Pontos de coleta.** São 264 pontos de Rio Preto embutidos no app. A distância é calculada a partir da região do bairro da pessoa, e a lista mostra os mais próximos primeiro.
 
+## Localização, foto de comprovação e privacidade
+
+- **Sua posição no mapa.** Com a permissão de localização (pedida só com o app em uso), o marcador "Você" fica onde o celular está; funciona sem internet, pelo GPS. A posição exata fica guardada só no aparelho (`lib/core/services/my_location_service.dart`): nunca vai para a API nem aparece para outras pessoas, que continuam vendo a região do bairro. Sem permissão, sem sinal ou fora da área do mapa, vale a região do bairro, e dá para ajustar tocando no mapa ("Você" → "Ajustar no mapa"). "Restaurar demonstração" mantém essa posição.
+- **Bairro.** O reconhecimento aceita abreviações e pequenas diferenças ("Jd." por "Jardim"). Bairro não reconhecido deixa a pessoa sem posição, e o app avisa no cadastro, no perfil e no mapa.
+- **Foto de comprovação.** Ao registrar uma ação é possível tirar uma foto ou escolher uma da galeria. A foto fica só no aparelho, reduzida, e o registro ganha o selo "Com comprovação" na confirmação e no histórico. Ela não muda os pontos e não é conferida por ninguém nesta versão. Só existe no modo local.
+- **Privacidade.** Com "Perfil visível para a comunidade" desligado, os outros veem a pessoa como "Alguém do bairro" em publicações, comentários, notificações, ranking e mapa. Com "Aparecer no mapa da comunidade" desligado, a pessoa sai do mapa dos vizinhos e o bairro dela não aparece no ranking.
+- **Demonstração do dia.** A demonstração guarda o dia em que foi criada. Se os dados forem de outro dia, o Início avisa a conta de demonstração e oferece atualizar.
+- **Impacto traduzido.** Os litros poupados aparecem também em garrafões de 20 litros e em dias de água para uma pessoa (110 litros por dia).
+
+Componentes nativos: `geolocator` (localização), `image_picker` (câmera e galeria), `path_provider` e `sqflite`. No Android o app declara as permissões de internet e de localização. A câmera é aberta pelo aplicativo de câmera do aparelho, sem permissão própria.
+
 ## Mapa e dados geográficos
 
 - **Origem.** O mapa-base (vias principais, rios e corpos d'água) e a lista de bairros vêm do OpenStreetMap. Os dados são licenciados sob a ODbL, e a tela do mapa mostra o crédito "© colaboradores do OpenStreetMap".
@@ -157,20 +168,22 @@ Os testes usam a API local com banco em memória e um relógio fixo (`test/suppo
 | `test/recompensas_page_test.dart` | Resgate e conferência do cupom, "Meus cupons" e telas pequenas |
 | `test/responsividade_test.dart` | Rotas abertas em vários tamanhos de tela, telas de autenticação e redirecionamento sem sessão |
 
-`test/support/local_app.dart` é apoio dos testes. Em `test/capturas/`, `gerar_capturas.dart` e `gerar_icones.dart` são ferramentas, não testes: o primeiro gera imagens PNG das telas com os dados da demonstração, para conferir o visual sem aparelho; o segundo regrava os ícones do Android a partir de `web/icons/Icon-512.png`.
+`test/support/local_app.dart` é apoio dos testes. Em `test/capturas/`, `gerar_capturas.dart` e `gerar_icones.dart` são ferramentas, não testes: o primeiro gera imagens PNG das telas com os dados da demonstração, para conferir o visual sem aparelho; o segundo regrava os ícones do Android a partir de `web/icons/Icon-512.png`. `gerar_mapa_tiles.dart` desenha as imagens do mapa e `gerar_fotos_exemplo.dart`, as fotos de exemplo da demonstração.
 
 ## Limitações conhecidas
 
 - No modo local, os dados não são compartilhados entre aparelhos: cada celular tem as próprias publicações, e uma conta criada em um aparelho não existe nos outros.
 - Não há envio de e-mail. Na recuperação de senha do modo local, o código aparece na tela.
-- O registro de ações é autodeclarado; os limites por ação e o teto semanal reduzem o abuso, mas não o eliminam.
+- O registro de ações é autodeclarado. A foto de comprovação é opcional e não é conferida. Os limites por ação e o teto semanal reduzem o abuso, mas não o eliminam.
 - Os vizinhos, o ranking e a meta coletiva da demonstração vêm de moradores fictícios.
 - Os pontos de coleta vêm de fontes públicas e não foram confirmados no local.
 - O mapa cobre apenas a área urbana de São José do Rio Preto.
 - "Lembretes diários" ainda não existe (a opção aparece desativada).
 - Só há interface em português do Brasil e tema claro.
 - iOS não está configurado: não existe a pasta `ios/`. O app foi preparado para Android e web.
-- O `eco-backend` ainda está sendo atualizado para as mesmas regras do modo local. Até lá, o modo online pode se comportar de forma diferente (limites, teto, desafios e cupons).
+- O `eco-backend` segue as mesmas regras do modo local, mas a foto de comprovação e a posição exata no mapa só existem no app.
+
+Outros documentos do projeto (economia de pontos, guia para apresentar sem internet, origem dos pontos de coleta, ideias) estão na pasta `docs/`.
 
 ## Créditos
 

@@ -1,18 +1,16 @@
 # EcoViva — funcionar sem internet na feira
 
-> Os arquivos `.apk` citados neste guia não ficam no repositório. Cada versão pode ser recompilada a partir da etiqueta (`feira-v4`, `feira-v6`) ou do ramo (`v7`) correspondente, com `flutter build apk --release`.
+> Os arquivos `.apk` citados neste guia não ficam no repositório. Cada versão pode ser recompilada a partir da etiqueta correspondente (`feira-v4`, `feira-v6`, `feira-v7`), com `flutter build apk --release`.
 
 Feira: quarta-feira, 11/11/2026. Celulares: Android.
 
-> **Situação em 10/11 (terça), de manhã:** a versão da feira é o **v6**, em `EcoViva-feira.apk` (cópia numerada `EcoViva-feira-v6.apk`). Você testou esse mesmo arquivo no celular da feira (Motorola Edge 60 Neo, Android 15) e aprovou: "deu certo o teste de ontem na v6".
+> **Situação em 10/11 (terça), à noite: versão congelada.** A versão da feira é o **v7**, em `EcoViva-feira.apk` (cópia numerada `EcoViva-feira-v7.apk`). Você testou esse mesmo arquivo no celular da feira (Motorola Edge 60 Neo, Android 15) e aprovou: "testei a v7 e ta tudo otimo brilhando".
 >
-> O v6 tem o mapa leve, o seu ícone no lugar certo pela localização do celular e a foto de comprovação da ação.
+> O v7 tem o mapa leve, o seu ícone no lugar certo pela localização do celular, a foto de comprovação, o aviso de demonstração antiga, o impacto traduzido e a privacidade do perfil funcionando.
 >
-> Versões de volta, guardadas na mesma pasta: `EcoViva-teste-v5.apk` (sem a foto) e `EcoViva-feira-v4.apk` (sem a localização e sem a foto).
+> Versões de volta, guardadas na mesma pasta: `EcoViva-feira-v6.apk` e `EcoViva-feira-v4.apk`.
 >
-> Há um **APK de teste v7** (`EcoViva-teste-v7.apk`) com três melhorias pequenas para o dia da feira e a correção de uma preferência de privacidade. Ele só vira a versão da feira depois do seu teste; o roteiro está em "Teste do APK v7".
->
-> **Na quarta de manhã, antes da primeira apresentação: Perfil → "Restaurar demonstração".** É o que deixa os números certos para o roteiro. Veja "No dia".
+> **Na quarta de manhã o próprio app lembra:** ao abrir, o Início avisa que os dados da demonstração são de outro dia. Toque em "Atualizar agora". Veja "No dia".
 
 ## As opções estudadas
 
@@ -169,7 +167,7 @@ O que saber antes:
 
 Se o v6 der qualquer problema, a versão da feira fica sendo o v5 (ou o v4, se o v5 também não agradar).
 
-## Teste do APK v7
+## Teste do APK v7 (feito: aprovado em 10/11)
 
 Instale `EcoViva-teste-v7.apk` por cima do app que já está no celular. O v7 é o v6 mais quatro coisas. Nada do mapa, da câmera, da localização nem das regras de pontos foi mexido.
 
@@ -202,28 +200,28 @@ Se o v7 der qualquer problema, a versão da feira continua sendo o v6.
 ### Antes de sair de casa
 
 - Celular carregado e, se possível, um carregador portátil.
-- Confira que o app instalado é o da feira: é o que tem o botão "Tirar foto" na tela de registro de ação.
+- Confira que o app instalado é o da feira (v7): no Início, o cartão "Água poupada" tem a linha dos garrafões.
 
 ### Ao chegar, antes da primeira apresentação
 
 1. **Localização do celular ligada** (o ícone de localização do Android). Modo avião pode ficar ligado: o GPS funciona sem internet.
-2. **Perfil → "Restaurar demonstração".** Isso recria os dados com a data de hoje e deixa a semana em 375 de 400 pontos, que é o que faz o aviso do teto aparecer no roteiro. Também apaga as fotos e a posição ajustada no mapa.
-3. **Entre com a conta de demonstração e abra o mapa uma vez.** Se o marcador "Você" não for para o lugar certo em cerca de 10 segundos (em pavilhão fechado o GPS pode não vir), toque no marcador "Você" → "Ajustar no mapa" → toque no ponto onde vocês estão. Fica guardado.
+2. **Abra o app na conta de demonstração.** O Início avisa que os dados da demonstração são de outro dia: toque em **"Atualizar agora"** e confirme em "Restaurar". Isso recria os dados com a data de hoje e deixa a semana em 375 de 400 pontos, que é o que faz o aviso do teto aparecer no roteiro. As fotos tiradas antes são apagadas; a posição no mapa é mantida. (Se o aviso não aparecer, os dados já são de hoje.)
+3. **Abra o mapa uma vez.** Se o marcador "Você" não for para o lugar certo em cerca de 10 segundos (em pavilhão fechado o GPS pode não vir), toque no marcador "Você" → "Ajustar no mapa" → toque no ponto onde vocês estão. Fica guardado, inclusive depois de restaurar a demonstração.
 4. Deixe o celular em modo avião, para nenhuma notificação atrapalhar.
 
 ### Roteiro de três minutos
 
-1. **Entrar** com a conta de demonstração. Mostrar o saldo, o nível e a barra "Pontos de ações nesta semana" (375 de 400).
+1. **Início:** mostrar o saldo, o nível, a barra "Pontos de ações nesta semana" (375 de 400) e a água poupada em garrafões.
 2. **Registrar "Apagar luzes em cômodos vazios" com foto:** "Tirar foto" de um interruptor ou de uma lâmpada, registrar. A confirmação mostra a foto com o selo "Com comprovação", +5 pontos e a conquista "Guardião da Energia" (+80).
 3. **Registrar "Compostagem":** entram só 20 dos 25 pontos e aparece o aviso de que o teto da semana foi atingido. É aqui que se explica o limite semanal.
 4. **Desafios:** mostrar um desafio avançando sozinho com as ações registradas.
 5. **Comunidade:** números do bairro, meta coletiva e ranking. Abrir o **mapa**: mostrar o "Você" no lugar certo, tocar em um ponto de coleta e mostrar a distância. Dizer que os vizinhos só veem a região do bairro, nunca o endereço.
 6. **Recompensas:** resgatar um cupom do restaurante, abrir o cupom e conferir com o código do parceiro (`1234`).
-7. Se sobrar tempo: **Meu histórico**, tocar no selo e abrir a foto.
+7. Se sobrar tempo: **Meu histórico** (tocar no selo e abrir a foto) e **Perfil → Preferências → Privacidade**.
 
 ### Entre uma apresentação e outra
 
-- Para repetir o roteiro inteiro (conquista e teto), é preciso **"Restaurar demonstração"** de novo. Se o GPS não estiver vindo no local, depois de restaurar refaça o "Ajustar no mapa" (leva alguns segundos).
+- Para repetir o roteiro inteiro (conquista e teto), é preciso restaurar: **Perfil → "Restaurar demonstração"**. A posição no mapa continua onde estava.
 - Se o tempo for curto, dá para apresentar sem restaurar: tudo funciona, só a conquista e o aviso do teto não se repetem.
 
 ### Se algo der errado
@@ -234,4 +232,4 @@ Se o v7 der qualquer problema, a versão da feira continua sendo o v6.
 | A câmera não abrir ou a foto não aparecer | Registrar a ação sem foto; todo o resto do roteiro funciona igual |
 | A barra da semana não estiver em 375 de 400 | Perfil → "Restaurar demonstração" (os dados eram de outro dia) |
 | O app se comportar de forma estranha | Fechar por completo e abrir de novo; os dados ficam guardados |
-| Nada resolver | Instalar por cima o `EcoViva-feira-v4.apk` (leve a pasta `apk` num pendrive ou no próprio celular) |
+| Nada resolver | Instalar por cima o `EcoViva-feira-v6.apk` (leve a pasta `apk` no próprio celular ou num pendrive) |

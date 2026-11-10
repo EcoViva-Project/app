@@ -14,4 +14,5 @@ Versões marcadas no repositório:
 |---|---|
 | `feira-v4` | Modo local, regras novas de pontos, mapa leve em imagens |
 | `feira-v6` | O v4 mais a localização do celular no mapa e a foto de comprovação |
-| ramo `v7` | O v6 mais posição mantida ao restaurar a demonstração, impacto traduzido, aviso de demonstração antiga e privacidade do perfil |
+| `feira-v7` | O v6 mais posição mantida ao restaurar a demonstração, impacto traduzido, aviso de demonstração antiga e privacidade do perfil. **Versão apresentada na feira de 11/11/2026** |
+| `original-2026-11-09` | O código como estava antes deste trabalho |
