@@ -1,10 +1,11 @@
-// Gera o mapa-base vetorial embutido no app (assets/map/rio_preto.json).
+// Baixa os dados do mapa-base (tool/dados/mapa_base_rio_preto.json).
 //
 // Uso:  node tool/gerar_mapa_base.js
 //
 // Baixa da Overpass API os DADOS do OpenStreetMap (vias principais e cursos
 // d'água) da área urbana de São José do Rio Preto, simplifica as linhas e
-// grava um arquivo compacto que o app desenha sozinho, sem internet.
+// grava um arquivo compacto. Esse arquivo não vai no app: dele saem as imagens
+// do mapa, desenhadas por test/capturas/gerar_mapa_tiles.dart.
 //
 // Importante: são dados (licença ODbL, com crédito "© colaboradores do
 // OpenStreetMap" na tela), não as imagens de tile.openstreetmap.org, cujo uso
@@ -111,9 +112,9 @@ const round = (value) => Math.round(value * 1e5) / 1e5;
     water,
     lakes,
   };
-  const dir = path.join(__dirname, '..', 'assets', 'map');
+  const dir = path.join(__dirname, 'dados');
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'rio_preto.json');
+  const file = path.join(dir, 'mapa_base_rio_preto.json');
   fs.writeFileSync(file, JSON.stringify(out));
   const byClass = {};
   for (const road of roads) byClass[road.c] = (byClass[road.c] || 0) + 1;

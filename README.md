@@ -105,14 +105,18 @@ O raciocínio dos números está em `ECONOMIA-DE-PONTOS.md`, e o plano para o us
 ## Mapa e dados geográficos
 
 - **Origem.** O mapa-base (vias principais, rios e corpos d'água) e a lista de bairros vêm do OpenStreetMap. Os dados são licenciados sob a ODbL, e a tela do mapa mostra o crédito "© colaboradores do OpenStreetMap".
-- **Por que o app desenha o mapa.** A política da OSMF não permite usar as imagens (tiles) do OpenStreetMap para funcionar sem internet. Por isso o app não baixa imagens: ele desenha, com `flutter_map`, os dados vetoriais guardados em `assets/map/rio_preto.json`.
+- **Por que o mapa é desenho do projeto.** A política da OSMF não permite usar as imagens (tiles) do OpenStreetMap para funcionar sem internet. Por isso o projeto não baixa imagens: ele desenha as suas, a partir dos dados, com o estilo e o código daqui. As imagens (quadros de 512 px, zoom 11 a 16, cerca de 7 MB) ficam em `assets/map/tiles/` e o `flutter_map` só as posiciona.
+- **Por que imagens, e não linhas.** A primeira versão desenhava as vias como linhas a cada quadro e travava no celular. Com as imagens prontas, arrastar e ampliar ficam leves. Rótulos de bairro, pontos de coleta e vizinhos continuam sendo desenhados pelo app por cima.
 - **Pontos de coleta.** Vêm de fontes públicas, listadas em cada ponto no arquivo de dados.
 
 Para regerar os arquivos, com Node.js instalado:
 
 ```bash
-# Mapa-base vetorial (baixa dados da Overpass API) -> assets/map/rio_preto.json
+# Dados do mapa-base (baixa da Overpass API) -> tool/dados/mapa_base_rio_preto.json
 node tool/gerar_mapa_base.js
+
+# Imagens do mapa-base, desenhadas a partir desses dados -> assets/map/tiles/
+flutter test test/capturas/gerar_mapa_tiles.dart
 
 # Bairros e pontos de coleta -> lib/core/local/data/*.dart
 node tool/gerar_dados_locais.js [pasta-de-dados]

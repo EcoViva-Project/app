@@ -24,9 +24,7 @@ class LocalApi {
 
   DateTime get now => _clock().toUtc();
 
-  static final RegExp _emailPattern = RegExp(
-    r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$',
-  );
+  static final RegExp _emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$');
 
   /// Abre o banco e, se estiver vazio, cria os dados de demonstração.
   Future<void> ensureReady() async {
@@ -76,11 +74,7 @@ class LocalApi {
   ) async {
     switch ((method, path)) {
       case ('GET', ['health']):
-        return {
-          'status': 'ok',
-          'service': 'eco-local',
-          'time': _iso(now),
-        };
+        return {'status': 'ok', 'service': 'eco-local', 'time': _iso(now)};
       case ('POST', ['auth', 'register']):
         return _register(data);
       case ('POST', ['auth', 'login']):
@@ -118,7 +112,12 @@ class LocalApi {
       case ('GET', ['actions']):
         return {'actions': _listActions(user, query)};
       case ('GET', ['actions', final id]):
-        return {'action': _actionJson(_requireRow('actions', id, 'Ação não encontrada.'), user)};
+        return {
+          'action': _actionJson(
+            _requireRow('actions', id, 'Ação não encontrada.'),
+            user,
+          ),
+        };
       case ('POST', ['actions', final id, 'records']):
         return _createRecord(user, id, data);
       case ('GET', ['records']):
@@ -241,10 +240,11 @@ class LocalApi {
 
   static String _iso(DateTime instant) => instant.toUtc().toIso8601String();
 
-  String _randomHex(int bytes) => List.generate(
-    bytes,
-    (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
-  ).join();
+  String _randomHex(int bytes) =>
+      List.generate(
+        bytes,
+        (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
 
   static String hashPassword(String password, String salt) =>
       sha256.convert(utf8.encode('$salt:$password')).toString();
@@ -302,9 +302,7 @@ class LocalApi {
     },
     // Posição aproximada (região do bairro), nunca o endereço exato.
     'location':
-        user['lat'] == null
-            ? null
-            : {'lat': user['lat'], 'lon': user['lon']},
+        user['lat'] == null ? null : {'lat': user['lat'], 'lon': user['lon']},
     'initials': user['initials'],
     'memberSince': user['created_at'],
     'monthlyGoal': user['monthly_goal'],
@@ -381,7 +379,8 @@ class LocalApi {
   Future<Map<String, dynamic>> _register(Map<String, dynamic> data) async {
     final name = _clean(data['name']);
     final email = _clean(data['email']).toLowerCase();
-    final password = data['password'] is String ? data['password'] as String : '';
+    final password =
+        data['password'] is String ? data['password'] as String : '';
 
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
       _fail(400, 'Nome, e-mail e senha são obrigatórios.');
@@ -439,8 +438,7 @@ class LocalApi {
     }
     final state = field('state', 2, 'O estado');
     return {
-      'cep':
-          cep.isEmpty ? null : '${cep.substring(0, 5)}-${cep.substring(5)}',
+      'cep': cep.isEmpty ? null : '${cep.substring(0, 5)}-${cep.substring(5)}',
       'street': field('street', 120, 'A rua'),
       'number': field('number', 12, 'O número'),
       'complement': field('complement', 60, 'O complemento'),
@@ -452,7 +450,8 @@ class LocalApi {
 
   Future<Map<String, dynamic>> _login(Map<String, dynamic> data) async {
     final email = _clean(data['email']);
-    final password = data['password'] is String ? data['password'] as String : '';
+    final password =
+        data['password'] is String ? data['password'] as String : '';
     if (email.isEmpty || password.isEmpty) {
       _fail(400, 'Informe e-mail e senha.');
     }
@@ -464,7 +463,9 @@ class LocalApi {
     return {'token': _tokenFor(user), 'user': _publicUser(user)};
   }
 
-  Future<Map<String, dynamic>> _forgotPassword(Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> _forgotPassword(
+    Map<String, dynamic> data,
+  ) async {
     final email = _clean(data['email']);
     if (email.isEmpty) _fail(400, 'Informe o e-mail da conta.');
 
@@ -496,7 +497,8 @@ class LocalApi {
   Future<Map<String, dynamic>> _resetPassword(Map<String, dynamic> data) async {
     final email = _clean(data['email']);
     final code = _clean(data['code']);
-    final password = data['password'] is String ? data['password'] as String : '';
+    final password =
+        data['password'] is String ? data['password'] as String : '';
     if (email.isEmpty || code.isEmpty || password.isEmpty) {
       _fail(400, 'Informe e-mail, código e nova senha.');
     }
@@ -567,7 +569,14 @@ class LocalApi {
       values['lon'] = position.lon;
     }
     final address = _addressFrom(data);
-    for (final key in ['cep', 'street', 'number', 'complement', 'city', 'state']) {
+    for (final key in [
+      'cep',
+      'street',
+      'number',
+      'complement',
+      'city',
+      'state',
+    ]) {
       if (data.containsKey(key)) values[key] = address[key];
     }
     for (final (key, column) in [
@@ -645,7 +654,10 @@ class LocalApi {
   }
 
   List<DbRow> _notificationsOf(DbRow user) =>
-      db.table('notifications').where((n) => n['user_id'] == user['id']).toList();
+      db
+          .table('notifications')
+          .where((n) => n['user_id'] == user['id'])
+          .toList();
 
   Map<String, dynamic> _listNotifications(DbRow user) {
     final rows = _notificationsOf(user)..sort(_newestFirst);
@@ -1043,7 +1055,10 @@ class LocalApi {
     };
   }
 
-  List<Map<String, dynamic>> _listActions(DbRow user, Map<String, String> query) {
+  List<Map<String, dynamic>> _listActions(
+    DbRow user,
+    Map<String, String> query,
+  ) {
     final category = (query['category'] ?? '').toLowerCase();
     final search = (query['search'] ?? '').toLowerCase();
     final rows =
@@ -1090,7 +1105,10 @@ class LocalApi {
     'dateTime': row['created_at'],
   };
 
-  List<Map<String, dynamic>> _listRecords(DbRow user, Map<String, String> query) {
+  List<Map<String, dynamic>> _listRecords(
+    DbRow user,
+    Map<String, String> query,
+  ) {
     final limit = (int.tryParse(query['limit'] ?? '') ?? 100).clamp(1, 500);
     final rows = _recordsOf(user['id'])..sort(_newestFirst);
     return rows.take(limit).map(_recordJson).toList();
@@ -1223,7 +1241,8 @@ class LocalApi {
 
   DbRow? _progressOf(DbRow user, DbRow challenge) {
     for (final row in db.table('challenge_progress')) {
-      if (row['user_id'] == user['id'] && row['challenge_id'] == challenge['id']) {
+      if (row['user_id'] == user['id'] &&
+          row['challenge_id'] == challenge['id']) {
         return row;
       }
     }
@@ -1240,7 +1259,9 @@ class LocalApi {
   }
 
   bool _isExpired(DbRow challenge, DbRow? progress, DateTime instant) {
-    if (progress == null || !_flag(progress['joined']) || _flag(progress['completed'])) {
+    if (progress == null ||
+        !_flag(progress['joined']) ||
+        _flag(progress['completed'])) {
       return false;
     }
     final end = _challengeEnd(challenge, progress);
@@ -1303,7 +1324,11 @@ class LocalApi {
   }
 
   /// Entra no desafio (ou recomeça um desafio vencido).
-  Future<DbRow> joinChallenge(DbRow user, DbRow challenge, {DateTime? at}) async {
+  Future<DbRow> joinChallenge(
+    DbRow user,
+    DbRow challenge, {
+    DateTime? at,
+  }) async {
     final when = at ?? now;
     final existing = _progressOf(user, challenge);
     if (existing == null) {
@@ -1410,7 +1435,10 @@ class LocalApi {
   // ---------------------------------------------------------------------------
 
   List<DbRow> _commentsOf(DbRow post) =>
-      db.table('post_comments').where((c) => c['post_id'] == post['id']).toList()
+      db
+          .table('post_comments')
+          .where((c) => c['post_id'] == post['id'])
+          .toList()
         ..sort((a, b) => '${a['created_at']}'.compareTo('${b['created_at']}'));
 
   Map<String, dynamic> _commentJson(DbRow row) => {
@@ -1532,7 +1560,11 @@ class LocalApi {
   /// "Marina L.": primeiro nome e inicial do último, para listas públicas.
   static String shortName(Object? fullName) {
     final parts =
-        '$fullName'.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+        '$fullName'
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((p) => p.isNotEmpty)
+            .toList();
     if (parts.isEmpty) return '';
     if (parts.length == 1) return parts.first;
     return '${parts.first} ${parts.last[0].toUpperCase()}.';
@@ -1574,11 +1606,16 @@ class LocalApi {
     Map<String, dynamic> rankingEntry(int index) {
       final person = db.byId('users', ranked[index].key);
       final isMe = ranked[index].key == user['id'];
+      // Quem desligou "aparecer no mapa" também não tem o bairro mostrado
+      // aos outros no ranking.
+      final showsNeighborhood =
+          isMe || (person != null && _flag(person['privacy_location']));
       return {
         'position': index + 1,
         'name': isMe ? '${user['name']}' : shortName(person?['name']),
         'initials': person?['initials'] ?? '?',
-        'neighborhood': person?['neighborhood'],
+        'neighborhood':
+            showsNeighborhood ? (person ?? user)['neighborhood'] : null,
         'points': ranked[index].value,
         'isMe': isMe,
       };
@@ -1812,7 +1849,9 @@ class LocalApi {
     final rows =
         db.table('rewards').where((row) => _flag(row['active'])).toList()
           ..sort((a, b) {
-            final featured = _i(b['is_featured']).compareTo(_i(a['is_featured']));
+            final featured = _i(
+              b['is_featured'],
+            ).compareTo(_i(a['is_featured']));
             return featured != 0
                 ? featured
                 : _i(a['points_cost']).compareTo(_i(b['points_cost']));

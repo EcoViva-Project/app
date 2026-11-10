@@ -30,11 +30,11 @@ Widget _app() => MaterialApp.router(
   ),
 );
 
-/// Abre a página com o mapa-base já lido (a leitura do arquivo usa um
-/// isolate, que precisa de tempo real).
+/// Abre a página com a lista de imagens do mapa-base já lida.
 Future<void> _openPage(WidgetTester tester) async {
-  final base = await tester.runAsync(BaseMapData.load);
-  expect(base!.roads, isNotEmpty);
+  final tiles = await tester.runAsync(BaseMap.loadTiles);
+  expect(tiles, contains(BaseMap.blankTile));
+  expect(tiles!.length, greaterThan(1000));
   await tester.pumpWidget(_app());
   await _wait(tester);
   expect(find.byType(MapaPage), findsOneWidget);

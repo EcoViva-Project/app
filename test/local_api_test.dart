@@ -42,10 +42,7 @@ class _Harness {
     final data = await call(
       'POST',
       '/auth/login',
-      body: {
-        'email': LocalSeed.demoEmail,
-        'password': LocalSeed.demoPassword,
-      },
+      body: {'email': LocalSeed.demoEmail, 'password': LocalSeed.demoPassword},
       anonymous: true,
     );
     token = data['token'] as String;
@@ -278,30 +275,33 @@ void main() {
       await h.loginDemo();
     });
 
-    test('desafio por dias avança uma etapa por dia, mesmo sem pontos', () async {
-      final joined = await h.call('POST', '/challenges/4/join');
-      expect(joined['challenge']['joined'], isTrue);
-      expect(joined['challenge']['daysLeft'], 14);
+    test(
+      'desafio por dias avança uma etapa por dia, mesmo sem pontos',
+      () async {
+        final joined = await h.call('POST', '/challenges/4/join');
+        expect(joined['challenge']['joined'], isTrue);
+        expect(joined['challenge']['daysLeft'], 14);
 
-      await h.register(5);
-      await h.register(4); // fecha o teto
-      var challenge =
-          (await h.call('GET', '/challenges/4'))['challenge']
-              as Map<String, dynamic>;
-      expect(challenge['completedSteps'], 1);
-      expect(challenge['stepDoneToday'], isTrue);
+        await h.register(5);
+        await h.register(4); // fecha o teto
+        var challenge =
+            (await h.call('GET', '/challenges/4'))['challenge']
+                as Map<String, dynamic>;
+        expect(challenge['completedSteps'], 1);
+        expect(challenge['stepDoneToday'], isTrue);
 
-      h.clock = h.clock.add(const Duration(days: 1));
-      final next = await h.register(4);
-      expect(next['record']['points'], 0);
-      final updates = next['challengeUpdates'] as List;
-      expect(updates.single['id'], 4);
-      expect(updates.single['completedSteps'], 2);
-      challenge =
-          (await h.call('GET', '/challenges/4'))['challenge']
-              as Map<String, dynamic>;
-      expect(challenge['daysLeft'], 13);
-    });
+        h.clock = h.clock.add(const Duration(days: 1));
+        final next = await h.register(4);
+        expect(next['record']['points'], 0);
+        final updates = next['challengeUpdates'] as List;
+        expect(updates.single['id'], 4);
+        expect(updates.single['completedSteps'], 2);
+        challenge =
+            (await h.call('GET', '/challenges/4'))['challenge']
+                as Map<String, dynamic>;
+        expect(challenge['daysLeft'], 13);
+      },
+    );
 
     test('concluir desafio credita o bônus e avisa', () async {
       // Semana sem desperdício de água: faltam 4 dias (quinta a domingo).
@@ -374,31 +374,34 @@ void main() {
       }
     });
 
-    test('resgate gera cupom válido, debita pontos e respeita o limite', () async {
-      final before = await h.summary();
-      final dish = await rewardNamed('Prato do dia vegetariano grátis');
-      final result =
-          await h.call('POST', '/rewards/${dish['id']}/redeem')
-              as Map<String, dynamic>;
+    test(
+      'resgate gera cupom válido, debita pontos e respeita o limite',
+      () async {
+        final before = await h.summary();
+        final dish = await rewardNamed('Prato do dia vegetariano grátis');
+        final result =
+            await h.call('POST', '/rewards/${dish['id']}/redeem')
+                as Map<String, dynamic>;
 
-      final coupon = result['redemption'] as Map<String, dynamic>;
-      expect(coupon['code'], startsWith('ECO-'));
-      expect(coupon['status'], 'active');
-      expect(coupon['partnerName'], 'Restaurante Sabor da Terra');
-      expect(
-        DateTime.parse(coupon['expiresAt'] as String),
-        h.clock.add(const Duration(days: 30)),
-      );
-      expect(result['summary']['points'], before['points'] - 1600);
-      expect(result['reward']['stock'], dish['stock'] - 1);
-      expect(result['reward']['limitReached'], isTrue);
+        final coupon = result['redemption'] as Map<String, dynamic>;
+        expect(coupon['code'], startsWith('ECO-'));
+        expect(coupon['status'], 'active');
+        expect(coupon['partnerName'], 'Restaurante Sabor da Terra');
+        expect(
+          DateTime.parse(coupon['expiresAt'] as String),
+          h.clock.add(const Duration(days: 30)),
+        );
+        expect(result['summary']['points'], before['points'] - 1600);
+        expect(result['reward']['stock'], dish['stock'] - 1);
+        expect(result['reward']['limitReached'], isTrue);
 
-      // Limite de 1 resgate por pessoa a cada 30 dias.
-      await expectLater(
-        h.call('POST', '/rewards/${dish['id']}/redeem'),
-        _apiError(409),
-      );
-    });
+        // Limite de 1 resgate por pessoa a cada 30 dias.
+        await expectLater(
+          h.call('POST', '/rewards/${dish['id']}/redeem'),
+          _apiError(409),
+        );
+      },
+    );
 
     test('recusa resgate sem saldo ou sem estoque', () async {
       final cleaning = await rewardNamed('Limpeza ecológica residencial');
@@ -533,7 +536,10 @@ void main() {
         ),
         _apiError(401),
       );
-      await expectLater(h.call('GET', '/progress', anonymous: true), _apiError(401));
+      await expectLater(
+        h.call('GET', '/progress', anonymous: true),
+        _apiError(401),
+      );
       h.token = 'token-invalido';
       await expectLater(h.call('GET', '/progress'), _apiError(401));
       await h.loginDemo();
@@ -657,6 +663,32 @@ void main() {
       expect(after['myWeeklyPoints'], 380);
     });
 
+    test('ranking não mostra o bairro de quem saiu do mapa', () async {
+      Future<List> ranking() async =>
+          (await h.call('GET', '/community/stats'))['ranking'] as List;
+
+      final other = (await ranking()).firstWhere((e) => e['isMe'] != true);
+      expect(other['neighborhood'], isNotNull);
+      final row = h.db
+          .table('users')
+          .firstWhere((u) => LocalApi.shortName(u['name']) == other['name']);
+
+      // O vizinho e a própria pessoa desligam "aparecer no mapa".
+      await h.db.update('users', row, {'privacy_location': 0});
+      final me = h.db
+          .table('users')
+          .firstWhere((u) => u['email'] == LocalSeed.demoEmail);
+      await h.db.update('users', me, {'privacy_location': 0});
+
+      final after = await ranking();
+      final hidden = after.firstWhere((e) => e['name'] == other['name']);
+      expect(hidden['neighborhood'], isNull);
+      expect(hidden['points'], other['points']);
+      // A própria pessoa continua vendo o seu bairro.
+      final mine = after.firstWhere((e) => e['isMe'] == true);
+      expect(mine['neighborhood'], isNotNull);
+    });
+
     test('cada ação diz quantos vizinhos registraram hoje', () async {
       final actions = (await h.call('GET', '/actions'))['actions'] as List;
       final tap = actions.firstWhere((a) => a['id'] == 1);
@@ -677,39 +709,44 @@ void main() {
       expect(joined['challenge']['participants'], before + 1);
     });
 
-    test('pessoa aparece no mapa na região do bairro, nunca no ponto exato', () async {
-      final me = (await h.call('GET', '/auth/me'))['user'] as Map<String, dynamic>;
-      expect(me['neighborhood'], 'Boa Vista');
-      expect(me['city'], 'São José do Rio Preto');
-      final location = me['location'] as Map<String, dynamic>;
-      final boaVista = Places.findNeighborhood('boa vista')!;
-      final distance = Places.distanceMeters(
-        boaVista.lat,
-        boaVista.lon,
-        location['lat'] as double,
-        location['lon'] as double,
-      );
-      expect(distance, inInclusiveRange(1, 600));
+    test(
+      'pessoa aparece no mapa na região do bairro, nunca no ponto exato',
+      () async {
+        final me =
+            (await h.call('GET', '/auth/me'))['user'] as Map<String, dynamic>;
+        expect(me['neighborhood'], 'Boa Vista');
+        expect(me['city'], 'São José do Rio Preto');
+        final location = me['location'] as Map<String, dynamic>;
+        final boaVista = Places.findNeighborhood('boa vista')!;
+        final distance = Places.distanceMeters(
+          boaVista.lat,
+          boaVista.lon,
+          location['lat'] as double,
+          location['lon'] as double,
+        );
+        expect(distance, inInclusiveRange(1, 600));
 
-      final map = await h.call('GET', '/community/map') as Map<String, dynamic>;
-      expect(map['neighbors'], hasLength(LocalSeed.neighbors.length));
-      expect(map['me']['visible'], isTrue);
-      expect(map['attribution'], contains('OpenStreetMap'));
-      for (final neighbor in map['neighbors'] as List) {
-        expect(neighbor['name'], endsWith('.'));
-        expect(neighbor.containsKey('email'), isFalse);
-        expect(neighbor.containsKey('address'), isFalse);
-      }
+        final map =
+            await h.call('GET', '/community/map') as Map<String, dynamic>;
+        expect(map['neighbors'], hasLength(LocalSeed.neighbors.length));
+        expect(map['me']['visible'], isTrue);
+        expect(map['attribution'], contains('OpenStreetMap'));
+        for (final neighbor in map['neighbors'] as List) {
+          expect(neighbor['name'], endsWith('.'));
+          expect(neighbor.containsKey('email'), isFalse);
+          expect(neighbor.containsKey('address'), isFalse);
+        }
 
-      // Quem desliga a preferência some do mapa dos outros.
-      await h.call(
-        'PATCH',
-        '/users/me/preferences',
-        body: {'privacyLocation': false},
-      );
-      final hidden = await h.call('GET', '/community/map');
-      expect(hidden['me']['visible'], isFalse);
-    });
+        // Quem desliga a preferência some do mapa dos outros.
+        await h.call(
+          'PATCH',
+          '/users/me/preferences',
+          body: {'privacyLocation': false},
+        );
+        final hidden = await h.call('GET', '/community/map');
+        expect(hidden['me']['visible'], isFalse);
+      },
+    );
 
     test('cadastro com endereço posiciona pelo bairro', () async {
       Future<dynamic> register(Map<String, dynamic> body) =>

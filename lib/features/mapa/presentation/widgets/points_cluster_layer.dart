@@ -13,9 +13,9 @@ import 'point_types.dart';
 /// Os pontos que caem na mesma célula de uma grade fixa no mapa viram um
 /// círculo com a contagem. Abaixo de [clusterUntilZoom] a célula tem
 /// [cellSize]; a partir dele, [closeCellSize], que ainda junta pontos no
-/// mesmo endereço (coordenadas idênticas, como lojas de um shopping). Só
-/// entram na tela os marcadores da área visível, e os grupos são calculados
-/// uma vez por nível de zoom inteiro, não a cada quadro.
+/// mesmo endereço (coordenadas idênticas, como lojas de um shopping). Os
+/// grupos e a camada de marcadores são montados uma vez por nível de zoom
+/// inteiro, não a cada quadro; a camada só desenha os da área visível.
 class PointsClusterLayer extends StatefulWidget {
   const PointsClusterLayer({
     super.key,
@@ -59,15 +59,21 @@ class _PointsClusterLayerState extends State<PointsClusterLayer> {
   final Map<int, Marker> _pointMarkers = {};
   final Map<String, Marker> _clusterMarkers = {};
 
+  /// Camada pronta de cada nível de zoom. Como a instância não muda entre
+  /// quadros, a camada de marcadores mantém as projeções em cache.
+  final Map<int, Widget> _layersByZoom = {};
+
   @override
   void didUpdateWidget(PointsClusterLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.points, widget.points)) {
       _clustersByZoom.clear();
       _clusterMarkers.clear();
+      _layersByZoom.clear();
     }
     if (oldWidget.onPointPressed != widget.onPointPressed) {
       _pointMarkers.clear();
+      _layersByZoom.clear();
     }
   }
 
@@ -150,26 +156,18 @@ class _PointsClusterLayerState extends State<PointsClusterLayer> {
   @override
   Widget build(BuildContext context) {
     final camera = MapCamera.of(context);
-    final bounds = camera.visibleBounds;
-    // Margem para os marcadores não "nascerem" na borda ao arrastar.
-    final latPad = (bounds.north - bounds.south) * 0.15;
-    final lonPad = (bounds.east - bounds.west) * 0.15;
-    bool visible(LatLng p) =>
-        p.latitude >= bounds.south - latPad &&
-        p.latitude <= bounds.north + latPad &&
-        p.longitude >= bounds.west - lonPad &&
-        p.longitude <= bounds.east + lonPad;
-
-    final markers = <Marker>[];
-    for (final cluster in _clustersFor(camera, camera.zoom.floor())) {
-      if (!visible(cluster.center)) continue;
-      markers.add(
-        cluster.points.length == 1
-            ? _pointMarker(cluster.points.first)
-            : _clusterMarker(cluster),
-      );
-    }
-    return MarkerLayer(markers: markers);
+    final zoom = camera.zoom.floor();
+    return _layersByZoom.putIfAbsent(
+      zoom,
+      () => MarkerLayer(
+        markers: List.unmodifiable([
+          for (final cluster in _clustersFor(camera, zoom))
+            cluster.points.length == 1
+                ? _pointMarker(cluster.points.first)
+                : _clusterMarker(cluster),
+        ]),
+      ),
+    );
   }
 }
 
@@ -193,15 +191,14 @@ class ClusterMarker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = count >= 50 ? 50.0 : (count >= 10 ? 44.0 : 38.0);
-    return IconButton(
-      tooltip:
+    return MapMarkerButton(
+      label:
           samePlace
               ? '$count pontos de coleta neste local. Toque para ver a lista.'
               : '$count pontos de coleta aqui. Toque para aproximar.',
       onPressed: onPressed,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 56, height: 56),
-      icon: Container(
+      size: 56,
+      child: Container(
         width: size,
         height: size,
         alignment: Alignment.center,

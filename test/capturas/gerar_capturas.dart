@@ -116,8 +116,8 @@ void main() {
     await _capture(tester, '22-historico');
     await _open(tester, '/preferencias');
     await _capture(tester, '23-preferencias');
-    // O mapa lê o arquivo do mapa-base em outro isolate: precisa de tempo
-    // real para carregar. Usa o tamanho de um celular comum.
+    // As imagens do mapa-base são decodificadas fora da linha de interface:
+    // precisam de tempo real para aparecer. Usa o tamanho de um celular comum.
     tester.view.physicalSize = const Size(390, 844);
     AppRouter.router.go('/mapa');
     await tester.pump();
@@ -127,6 +127,13 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 250));
       if (find.textContaining('Carregando').evaluate().isEmpty) break;
+    }
+    // Mais um tempo para as imagens do fundo terminarem de aparecer.
+    for (var attempt = 0; attempt < 6; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
     }
     for (var i = 0; i < 4; i++) {
       await tester.pump(const Duration(milliseconds: 250));

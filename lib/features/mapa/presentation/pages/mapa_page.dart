@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -19,7 +20,7 @@ import '../widgets/point_types.dart';
 import '../widgets/points_cluster_layer.dart';
 
 /// Mapa da comunidade: pontos de coleta e vizinhos (em posição aproximada)
-/// sobre um mapa-base desenhado pelo app, sem internet.
+/// sobre um mapa-base em imagens embutidas no app, sem internet.
 class MapaPage extends StatefulWidget {
   const MapaPage({super.key});
 
@@ -37,7 +38,7 @@ class _MapaPageState extends State<MapaPage> {
   bool _loading = true;
   String? _error;
   CommunityMapData? _data;
-  BaseMapLayers? _layers;
+  BaseMapTileProvider? _tiles;
 
   bool _showPoints = true;
   bool _showNeighbors = true;
@@ -66,6 +67,15 @@ class _MapaPageState extends State<MapaPage> {
   Widget? _neighborsLayer;
   Widget? _meLayer;
 
+  /// Animação de entrada desta tela (ver [_routeTransitionDone]).
+  Animation<double>? _routeAnimation;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeAnimation = ModalRoute.of(context)?.animation;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -78,6 +88,40 @@ class _MapaPageState extends State<MapaPage> {
     super.dispose();
   }
 
+  /// Espera a animação de entrada da tela terminar.
+  ///
+  /// O primeiro quadro do mapa é o mais caro (monta marcadores e rótulos).
+  /// Com a tela já parada ele passa despercebido; no meio da animação,
+  /// aparecia como um engasgo ao abrir.
+  Future<void> _routeTransitionDone() {
+    final animation = _routeAnimation;
+    if (animation == null || animation.status != AnimationStatus.forward) {
+      return Future.value();
+    }
+    final completer = Completer<void>();
+    void listener(AnimationStatus status) {
+      if (status == AnimationStatus.forward) return;
+      animation.removeStatusListener(listener);
+      if (!completer.isCompleted) completer.complete();
+    }
+
+    animation.addStatusListener(listener);
+    return completer.future;
+  }
+
+  /// Começa a carregar as imagens da área inicial, para o mapa já aparecer
+  /// completo.
+  void _precacheInitialTiles(Set<String> available, CommunityMapData data) {
+    final center = _clamp(
+      LatLng(data.myLat ?? data.centerLat, data.myLon ?? data.centerLon),
+      BaseMap.bounds,
+    );
+    final assets = BaseMap.tilesAround(center, _initialZoom.round(), available);
+    for (final asset in assets) {
+      unawaited(precacheImage(AssetImage(asset), context, onError: (_, _) {}));
+    }
+  }
+
   Future<void> _load() async {
     if (!mounted) return;
     setState(() {
@@ -86,16 +130,23 @@ class _MapaPageState extends State<MapaPage> {
     });
     try {
       final results = await Future.wait<Object>([
-        BaseMapData.load(),
+        BaseMap.loadTiles(),
         NeighborhoodService.instance.loadMap(),
       ]);
       if (!mounted) return;
-      final base = results[0] as BaseMapData;
+      final available = results[0] as Set<String>;
       final data = results[1] as CommunityMapData;
-      final layers =
-          identical(_layers?.data, base) ? _layers! : BaseMapLayers(base);
+      // A mesma instância enquanto a lista de quadros não mudar, para a
+      // camada de fundo não recarregar as imagens.
+      final tiles =
+          identical(_tiles?.available, available)
+              ? _tiles!
+              : BaseMapTileProvider(available);
+      _precacheInitialTiles(available, data);
+      await _routeTransitionDone();
+      if (!mounted) return;
       setState(() {
-        _layers = layers;
+        _tiles = tiles;
         _data = data;
         _buildMarkerLayers(data);
         _loading = false;
@@ -235,7 +286,7 @@ class _MapaPageState extends State<MapaPage> {
 
   void _centerOnMe() {
     final zoom = math.max(_controller.camera.zoom, 14.0);
-    _controller.move(_clamp(_homePosition, _layers!.data.bounds), zoom);
+    _controller.move(_clamp(_homePosition, BaseMap.bounds), zoom);
   }
 
   void _openPoint(CollectionPoint point) {
@@ -264,8 +315,8 @@ class _MapaPageState extends State<MapaPage> {
 
   Widget _buildBody() {
     final data = _data;
-    final layers = _layers;
-    if (data == null || layers == null) {
+    final tiles = _tiles;
+    if (data == null || tiles == null) {
       if (_error != null && !_loading) {
         return LoadErrorView(message: _error!, onRetry: _load);
       }
@@ -305,7 +356,11 @@ class _MapaPageState extends State<MapaPage> {
               builder:
                   (context, constraints) => Stack(
                     children: [
-                      Positioned.fill(child: _buildMap(data, layers)),
+                      // Camada própria: ao arrastar, só o mapa é
+                      // redesenhado, não os botões por cima dele.
+                      Positioned.fill(
+                        child: RepaintBoundary(child: _buildMap(data, tiles)),
+                      ),
                       Positioned(
                         top: 8,
                         left: 8,
@@ -351,8 +406,8 @@ class _MapaPageState extends State<MapaPage> {
     );
   }
 
-  Widget _buildMap(CommunityMapData data, BaseMapLayers layers) {
-    final bounds = layers.data.bounds;
+  Widget _buildMap(CommunityMapData data, BaseMapTileProvider tiles) {
+    final bounds = BaseMap.bounds;
     return Semantics(
       label:
           'Mapa da comunidade. Use o botão "Ver como lista" para ouvir os '
@@ -364,7 +419,7 @@ class _MapaPageState extends State<MapaPage> {
           initialZoom: _initialZoom,
           minZoom: _minZoom,
           maxZoom: _maxZoom,
-          backgroundColor: BaseMapColors.land,
+          backgroundColor: BaseMap.land,
           cameraConstraint: CameraConstraint.containCenter(bounds: bounds),
           interactionOptions: const InteractionOptions(
             flags:
@@ -377,12 +432,7 @@ class _MapaPageState extends State<MapaPage> {
           ),
         ),
         children: [
-          layers.lakes,
-          layers.water,
-          ZoomBandLayer(
-            key: const ValueKey('mapa-vias'),
-            bands: layers.roadBands,
-          ),
+          BaseMapLayer(key: const ValueKey('mapa-fundo'), provider: tiles),
           const NeighborhoodLabelsLayer(key: ValueKey('mapa-bairros')),
           if (_showPoints)
             PointsClusterLayer(
